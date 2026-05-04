@@ -44,3 +44,6 @@ Thumbs.db
 /.kilo
 /.vscode
 .ecosystem.config.js
+#seed
+
+/seed-data.js

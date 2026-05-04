@@ -27,16 +27,16 @@ router.get("/course/:courseId", getExternalHWByCourseController);
 router.get("/", restrictTo("admin", "instructor"), getAllExternalHWController);
 
 
-router.post("/", restrictTo("admin", "instructor"), createExternalHWController);
+router.post("/", restrictTo("admin", "instructor", "parent"), createExternalHWController);
 
 
 router.get("/:id", getExternalHWByIdController);
 
 
-router.patch("/:id", restrictTo("admin", "instructor"), updateExternalHWController);
+router.patch("/:id", restrictTo("admin", "instructor", "parent"), updateExternalHWController);
 
 
-router.delete("/:id", restrictTo("admin", "instructor"), deleteExternalHWController);
+router.delete("/:id", restrictTo("admin", "instructor", "parent"), deleteExternalHWController);
 
 
 router.patch("/:id/complete", restrictTo("student"), markExternalHWCompleteController);

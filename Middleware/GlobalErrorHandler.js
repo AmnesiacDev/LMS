@@ -59,7 +59,17 @@ const GlobalErrorHandler = (err, req, res, next) => {
   const environment = process.env.NODE_ENV || "Development";
 
   if (environment === "Development") {
-    DevelopmentErrorHandler(err, req, res);
+    let devErr = { ...err, name: err.name, message: err.message, stack: err.stack };
+    if (devErr.name === "CastError") devErr = HandleCastDbError(devErr);
+    if (devErr.code === 11000) devErr = HandelDuplicatesError(devErr);
+    if (devErr.name === "ValidationError") devErr = HandleValidationError(devErr);
+    if (devErr.name === "JsonWebTokenError") devErr = HandleJwtError();
+    if (devErr.name === "TokenExpiredError") devErr = HandleJwtExpirationError();
+    
+    // Ensure we keep the original stack for debugging in dev
+    devErr.stack = err.stack;
+    
+    DevelopmentErrorHandler(devErr, req, res);
   } else {
     const error = { ...err };
 

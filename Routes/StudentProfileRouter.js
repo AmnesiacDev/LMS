@@ -19,18 +19,14 @@ router.get("/me", restrictedToController("parent" ,"student") , getMyStudentProf
 
 router.get("/me/:id", restrictedToController("parent" ,"student") , getMyStudentProfileByIdController);
 
+router.get("/all", restrictedToController("admin"), getAllStudentProfileController);
+
 router.get("/:id", validate(profileIdSchema, "params"), getStudentProfileController);
 
 router
-  .route("/:id" , restrictedToController("parent" ,"student"))
-  .post(validate(profileIdSchema, "params"), validate(createStudentProfileSchema), createStudentProfileController)
-  .patch(validate(profileIdSchema, "params"), validate(updateStudentProfileSchema), updateStudentProfileController);
-
-
-router.use(restrictedToController("admin"))
-
-
-router.get("/all", getAllStudentProfileController);
+  .route("/:id")
+  .post(restrictedToController("parent" ,"student", "admin"), validate(profileIdSchema, "params"), validate(createStudentProfileSchema), createStudentProfileController)
+  .patch(restrictedToController("parent" ,"student", "admin"), validate(profileIdSchema, "params"), validate(updateStudentProfileSchema), updateStudentProfileController);
 
  
 

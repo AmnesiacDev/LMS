@@ -108,7 +108,13 @@ const getMySessionByIdService = async (userData, sessionId) => {
 };
 
 const getAllSessionsService = async (queryString) => {
-  const features = new ApiFeatures(Session.find({}), queryString).filter().sort().fields().pagination();
+  const mongooseQuery = Session.find({})
+    .populate({
+      path: "studentProfileId",
+      populate: { path: "user", select: "FullName Email UserName" }
+    })
+    .populate({ path: "instructorId", select: "FullName Email" });
+  const features = new ApiFeatures(mongooseQuery, queryString).filter().sort().fields().pagination();
 
   const sessions = await features.mongooseQuery;
   return sessions;
@@ -118,12 +124,24 @@ const getAllSessionsService = async (queryString) => {
 
 
 const getSessionsByStudentService = async (studentProfileId, queryString = {}) => {
-  const features = new ApiFeatures(Session.find({ studentProfileId }), queryString).sort().fields().pagination();
+  const mongooseQuery = Session.find({ studentProfileId })
+    .populate({
+      path: "studentProfileId",
+      populate: { path: "user", select: "FullName Email UserName" }
+    })
+    .populate({ path: "instructorId", select: "FullName Email" });
+  const features = new ApiFeatures(mongooseQuery, queryString).sort().fields().pagination();
   return await features.mongooseQuery;
 };
 
 const getSessionsByInstructorService = async (instructorId, queryString = {}) => {
-  const features = new ApiFeatures(Session.find({ instructorId }), queryString).sort().fields().pagination();
+  const mongooseQuery = Session.find({ instructorId })
+    .populate({
+      path: "studentProfileId",
+      populate: { path: "user", select: "FullName Email UserName" }
+    })
+    .populate({ path: "instructorId", select: "FullName Email" });
+  const features = new ApiFeatures(mongooseQuery, queryString).sort().fields().pagination();
   return await features.mongooseQuery;
 };
 

@@ -27,6 +27,8 @@ import ExternalCourseRouter from "./Routes/ExternalCourseRouter.js";
 import externalHWRouter from "./Routes/ExternalCourseHwRouter.js";
 import ExamRouter from "./Routes/ExamRouter.js";
 import ProgressTrendsRouter from "./Routes/ProgressTrendsRouter.js";
+import MessageRouter from "./Routes/MessageRouter.js";
+import NotificationRouter from "./Routes/NotificationRouter.js";
 
 const app = express();
 
@@ -71,34 +73,35 @@ app.use(
 // ─── 3. General API Rate Limiter ───────────────────────────────────────────────
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
+  max: 1000, // Increased default to prevent quick lockouts in general
   message: "Too many requests from this IP, please try again after 15 minutes.",
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.path === "/api/v1/health" || req.path === "/api-docs",
+  skip: (req) => process.env.NODE_ENV?.toLowerCase() === "development" || req.path === "/api/v1/health" || req.path === "/api-docs",
 });
 app.use("/api", apiLimiter);
 
 // Helper function to extract client IP address
 const getClientIp = (req) => {
-  return (req.headers["x-forwarded-for"]?.split(",")[0].trim()) || 
-         req.ip || 
-         req.socket?.remoteAddress || 
-         "unknown";
+  return (req.headers["x-forwarded-for"]?.split(",")[0].trim()) ||
+    req.ip ||
+    req.socket?.remoteAddress ||
+    "unknown";
 };
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 attempts per 15 minutes
+  max: 100, // 10 attempts per 15 minutes
   message: "Too many authentication attempts, please try again after 15 minutes.",
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => process.env.NODE_ENV === "development",
   keyGenerator: (req) => {
     // Use email for login, IP for signup to limit per account
     if (req.body?.email) {
       return `login:${req.body.email}`;
     }
-    return `signup:${getClientIp(req)}`; 
+    return `signup:${getClientIp(req)}`;
   },
 });
 app.use("/api/v1/auth/login", authLimiter);
@@ -132,7 +135,7 @@ if (process.env.NODE_ENV === "development") {
 }
 
 // ─── 6. Body Parsers ───────────────────────────────────────────────────────────
-app.use(express.json({ 
+app.use(express.json({
   limit: "10kb",
   verify: (req, res, buf) => {
     try {
@@ -249,6 +252,8 @@ app.use("/api/v1/external-course", ExternalCourseRouter);
 app.use("/api/v1/external-hw", externalHWRouter);
 app.use("/api/v1/exam", ExamRouter);
 app.use("/api/v1/progress", ProgressTrendsRouter);
+app.use("/api/v1/messages", MessageRouter);
+app.use("/api/v1/notifications", NotificationRouter);
 
 // ─── 14. 404 Handler ────────────────────────────────────────────────────────────
 app.all(/.*/, (req, res, next) => {

@@ -68,14 +68,30 @@ const createSessionReviewService = async (data) => {
 };
 
 const getAllSessionReviewsService = async (queryString) => {
-  const features = new ApiFeatures(SessionReview.find({}), queryString).filter().sort().fields().pagination();
+  const mongooseQuery = SessionReview.find({})
+    .populate({
+      path: "studentProfileId",
+      populate: { path: "user", select: "FullName Email" }
+    })
+    .populate({ path: "session", select: "title date" })
+    .populate({ path: "Instructor", select: "FullName" });
+
+  const features = new ApiFeatures(mongooseQuery, queryString).filter().sort().fields().pagination();
 
   const reviews = await features.mongooseQuery;
   return reviews;
 };
 
 const getSessionReviewsByStudentService = async (studentProfileId, queryString = {}) => {
-  const features = new ApiFeatures(SessionReview.find({ studentProfileId: studentProfileId }), queryString).sort().fields().pagination();
+  const mongooseQuery = SessionReview.find({ studentProfileId })
+    .populate({
+      path: "studentProfileId",
+      populate: { path: "user", select: "FullName Email" }
+    })
+    .populate({ path: "session", select: "title date" })
+    .populate({ path: "Instructor", select: "FullName" });
+
+  const features = new ApiFeatures(mongooseQuery, queryString).sort().fields().pagination();
 
   return await features.mongooseQuery;
 };
