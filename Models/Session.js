@@ -7,7 +7,6 @@ const sessionSchema = new mongoose.Schema(
       type: String,
       required: true,
       minlength: [4, "Session title have to more than 4 letters"],
-      unique: true,
     },
 
     description: {
@@ -64,8 +63,9 @@ const sessionSchema = new mongoose.Schema(
 
 sessionSchema.index({ studentProfileId: 1, date: 1 });
 sessionSchema.index({ instructorId: 1 });
-// sessionSchema.index({ title: 1 }, { unique: true });
 sessionSchema.index({ date: 1 });
+// Prevent duplicate session titles only within the same student, not globally
+sessionSchema.index({ studentProfileId: 1, title: 1 }, { unique: true });
 
 sessionSchema.pre("save", function () {
   const now = new Date();

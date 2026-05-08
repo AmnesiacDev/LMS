@@ -1,8 +1,10 @@
+import crypto from "crypto";
 import User from "../Models/user.js";
 import Token from "../Models/Token.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import { ComparePasswordHelper, hashPasswordHelper } from "../Utilities/HashHelper.js";
 import { generateToken, verifyRefreshToken, verifyAccessToken } from "../Utilities/JwtHelper.js";
+import { sendPasswordResetEmail } from "../Utilities/EmailHelper.js";
 import { randomUUID } from "crypto";
 
 async function SendTokenService(user) {
@@ -49,26 +51,23 @@ const LoginService = async (email, password) => {
   
   const user = await User.findOne({ Email: email }).select("+password");
 
-  if (!user) {
-    throw new AppErrorHelper("User not found", 404);
+  // Use the same generic error for both "no user" and "wrong password"
+  // to prevent email enumeration by attackers.
+  if (!user || !(await ComparePasswordHelper(password, user.password))) {
+    throw new AppErrorHelper("Invalid email or password", 401);
   }
 
-  // Clean up expired tokens
+  // Remove expired tokens
   await Token.deleteMany({ userId: user._id, expiresAt: { $lt: new Date() } });
 
-  // Check token count and remove oldest if exceeds limit
+  // Cap active sessions at 3 — delete all excess oldest tokens in one query
   const tokenCount = await Token.countDocuments({ userId: user._id });
-
-  if (tokenCount > 3) {
-    const oldestToken = await Token.findOne({ userId: user._id }).sort({ createdAt: 1 });
-    if (oldestToken) {
-      await Token.deleteOne({ _id: oldestToken._id });
-    }
-  }
-
-  // Validate password
-  if (!(await ComparePasswordHelper(password, user.password))) {
-    throw new AppErrorHelper("User password doesn't match", 404);
+  if (tokenCount >= 3) {
+    const excess = await Token.find({ userId: user._id })
+      .sort({ createdAt: 1 })
+      .limit(tokenCount - 2)
+      .select("_id");
+    await Token.deleteMany({ _id: { $in: excess.map((t) => t._id) } });
   }
 
   const result = await SendTokenService(user);
@@ -129,4 +128,52 @@ const ProtectionService = async function (req) {
 
 const restrictedToService = async function () {};
 
-export { refreshTokenService, LogOutService, LoginService, SignUpService, ProtectionService, restrictedToService };
+// ─── Forgot Password ──────────────────────────────────────────────────────────
+const ForgotPasswordService = async (email, origin) => {
+  // Always respond with the same message to avoid email enumeration
+  const user = await User.findOne({ Email: email }).setOptions({ withInactive: false });
+  if (!user) return;
+
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+  user.passwordResetToken   = hashedToken;
+  user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+  await user.save({ validateBeforeSave: false });
+
+  const resetUrl = `${origin}/reset-password/${rawToken}`;
+
+  try {
+    await sendPasswordResetEmail({ to: user.Email, resetUrl, userName: user.FullName });
+  } catch {
+    // Roll back the token so the user can try again
+    user.passwordResetToken   = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save({ validateBeforeSave: false });
+    throw new AppErrorHelper("Failed to send reset email. Please try again.", 500);
+  }
+};
+
+// ─── Reset Password ───────────────────────────────────────────────────────────
+const ResetPasswordService = async (rawToken, newPassword) => {
+  const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+  const user = await User.findOne({
+    passwordResetToken:   hashedToken,
+    passwordResetExpires: { $gt: new Date() },
+  }).select("+passwordResetToken +passwordResetExpires");
+
+  if (!user) {
+    throw new AppErrorHelper("Token is invalid or has expired", 400);
+  }
+
+  user.password             = newPassword;
+  user.passwordResetToken   = undefined;
+  user.passwordResetExpires = undefined;
+  await user.save();
+
+  // Invalidate all existing sessions so old devices must re-login
+  await Token.deleteMany({ userId: user._id });
+};
+
+export { refreshTokenService, LogOutService, LoginService, SignUpService, ProtectionService, restrictedToService, ForgotPasswordService, ResetPasswordService };

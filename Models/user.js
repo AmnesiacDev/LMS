@@ -11,10 +11,12 @@ const userSchema = new schema(
       required: true,
       trim: true,
       validate: {
+        // Unicode-aware: accepts letters from any language (Arabic, Latin, etc.)
+        // plus spaces, hyphens, and apostrophes (e.g. "O'Brien", "عمر")
         validator(value) {
-          return validator.isAlpha(value, "en-US", { ignore: " " });
+          return /^[\p{L}\s'\-]{2,}$/u.test(value);
         },
-        message: "Invalid Name , Name should only contain letters",
+        message: "Invalid Name — only letters, spaces, hyphens, and apostrophes allowed",
       },
     },
     UserName: {
@@ -54,6 +56,14 @@ const userSchema = new schema(
       type: Boolean,
       default: true,
     },
+    passwordResetToken: {
+      type: String,
+      select: false,
+    },
+    passwordResetExpires: {
+      type: Date,
+      select: false,
+    },
   },
   { timestamps: true },
 );
@@ -63,8 +73,13 @@ const userSchema = new schema(
 userSchema.index({ role: 1 });
 userSchema.index({ isActive: 1 });
 
+// By default hide inactive users. Pass { withInactive: true } in query options
+// (e.g. Model.find({}).setOptions({ withInactive: true })) to bypass this filter
+// — needed for admin tools that need to list or reactivate deactivated accounts.
 userSchema.pre(/^find/, function () {
-  this.find({ isActive: { $ne: false } });
+  if (!this.getOptions().withInactive) {
+    this.find({ isActive: { $ne: false } });
+  }
 });
 
 userSchema.pre("save", async function () {

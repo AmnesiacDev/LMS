@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import cookieParser from "cookie-parser";
 import { fileURLToPath } from "url";
+import { randomUUID } from "crypto";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import cors from "cors";
@@ -91,7 +92,7 @@ const getClientIp = (req) => {
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 10 attempts per 15 minutes
+  max: 10, // 10 attempts per 15 minutes
   message: "Too many authentication attempts, please try again after 15 minutes.",
   standardHeaders: true,
   legacyHeaders: false,
@@ -107,30 +108,28 @@ const authLimiter = rateLimit({
 app.use("/api/v1/auth/login", authLimiter);
 app.use("/api/v1/auth/signup", authLimiter);
 
-// ─── 5. Development Logging ───────────────────────────────────────────────────
-// Ensure logs directory exists
-if (!fs.existsSync("logs")) {
-  fs.mkdirSync("logs", { recursive: true });
-}
-
-// Create write streams for different log files
-const accessLogStream = fs.createWriteStream(path.join("logs", "access.log"), {
-  flags: "a",
+// ─── 5. Request ID + Logging ──────────────────────────────────────────────────
+// Attach a unique ID to every request so errors can be traced across log lines
+app.use((req, _res, next) => {
+  req.id = randomUUID();
+  next();
 });
 
-const authLogStream = fs.createWriteStream(path.join("logs", "auth.log"), {
-  flags: "a",
-});
+// In production, write to stdout so the PaaS host (Render/Fly/etc.) aggregates logs.
+// Local file logs vanish on every deploy on free hosts, so stdout is the right target.
+const isProduction = process.env.NODE_ENV === "production";
 
-// Log all requests to access.log
-app.use(morgan("combined", { stream: accessLogStream }));
+if (isProduction) {
+  app.use(morgan("combined"));
+} else {
+  if (!fs.existsSync("logs")) fs.mkdirSync("logs", { recursive: true });
 
-// Log auth requests to separate auth.log
-app.use("/api/v1/auth/login", morgan("combined", { stream: authLogStream }));
-app.use("/api/v1/auth/signup", morgan("combined", { stream: authLogStream }));
+  const accessLogStream = fs.createWriteStream(path.join("logs", "access.log"), { flags: "a" });
+  const authLogStream   = fs.createWriteStream(path.join("logs", "auth.log"),   { flags: "a" });
 
-// Console logging for development
-if (process.env.NODE_ENV === "development") {
+  app.use(morgan("combined", { stream: accessLogStream }));
+  app.use("/api/v1/auth/login",  morgan("combined", { stream: authLogStream }));
+  app.use("/api/v1/auth/signup", morgan("combined", { stream: authLogStream }));
   app.use(morgan("dev"));
 }
 
@@ -149,22 +148,22 @@ app.use(express.urlencoded({ extended: true, limit: "10kb", parameterLimit: 20 }
 app.use(cookieParser());
 
 // ─── 7. NoSQL Injection Sanitization ───────────────────────────────────────────
-const sanitizeValue = (obj) => {
-  if (obj && typeof obj === "object") {
-    for (const key of Object.keys(obj)) {
-      if (key.startsWith("$") || key.includes(".")) {
-        delete obj[key];
-      } else {
-        sanitizeValue(obj[key]); // recurse into nested objects
-      }
-    }
-  }
+// Returns a new sanitized copy — never mutates the original object.
+// In Express 5, req.query is a getter and direct mutation throws.
+const sanitizeObject = (obj) => {
+  if (!obj || typeof obj !== "object") return obj;
+  return Object.fromEntries(
+    Object.entries(obj)
+      .filter(([key]) => !key.startsWith("$") && !key.includes("."))
+      .map(([key, val]) => [key, sanitizeObject(val)])
+  );
 };
 
-app.use((req, res, next) => {
-  sanitizeValue(req.body);
-  sanitizeValue(req.params);
-  sanitizeValue(req.query);
+app.use((req, _res, next) => {
+  if (req.body)   req.body   = sanitizeObject(req.body);
+  if (req.params) req.params = sanitizeObject(req.params);
+  // Reassign rather than mutate — safe for Express 5's getter-based req.query
+  req.query = sanitizeObject(req.query ?? {});
   next();
 });
 
@@ -172,6 +171,8 @@ app.use((req, res, next) => {
 app.use(compression());
 
 // ─── 9. Static Files (with security) ───────────────────────────────────────────
+// WARNING: The local "uploads" folder is wiped on every deploy on free PaaS hosts
+// (Render, Fly, Koyeb). Migrate file storage to Cloudinary or S3 before going live.
 app.use("/uploads", express.static("uploads", {
   maxAge: "1h",
   etag: true,
@@ -230,17 +231,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ─── 12. Health Check ──────────────────────────────────────────────────────────
-app.get("/api/v1/health", (req, res) => {
-  res.status(200).json({
-    status: "success",
-    message: "Server is healthy",
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-  });
-});
-
-// ─── 13. Routes ────────────────────────────────────────────────────────────────
+// ─── 12. Routes ────────────────────────────────────────────────────────────────
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/user", userRouter);
 app.use("/api/v1/StudentProfile", StudentProfileRouter);

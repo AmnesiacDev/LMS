@@ -58,6 +58,9 @@ SubmissionSchema.pre(/^find/, async function () {
 });
 
 // ─── Pre-save ─────────────────────────────────────────────────────────────────
+// NOTE: This hook fetches the parent Task on every save (1 extra DB round-trip).
+// Acceptable for single saves; if you add bulk grading later, pre-fetch tasks
+// in the service layer and pass dueDate in instead to avoid N+1 queries.
 SubmissionSchema.pre("save", async function () {
   const task = await mongoose.model("Task").findById(this.task);
 

@@ -1,6 +1,6 @@
 import express from "express";
 
-import { signUpController, loginController, RefreshController, logoutController, protectionController, restrictedToController } from "../Controllers/AuthController.js";
+import { signUpController, loginController, RefreshController, logoutController, protectionController, restrictedToController, forgotPasswordController, resetPasswordController } from "../Controllers/AuthController.js";
 
 const router = express.Router();
 
@@ -115,6 +115,9 @@ router.post("/login", loginController);
  *         description: Refresh token expired or invalid
  */
 router.post("/refresh", RefreshController);
+
+router.post("/forgot-password", forgotPasswordController);
+router.post("/reset-password/:token", resetPasswordController);
 
 router.use(protectionController);
 

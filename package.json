@@ -7,7 +7,7 @@
     "node": ">=20.19.0"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --runInBand",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "start": "node server.js",
@@ -28,7 +28,6 @@
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
-    "cros": "^1.1.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.1",
@@ -49,7 +48,16 @@
   },
   "devDependencies": {
     "jest": "^30.3.0",
+    "mongodb-memory-server": "^10.1.4",
     "prettier": "^3.8.1",
     "supertest": "^7.2.2"
+  },
+  "jest": {
+    "extensionsToTreatAsEsm": [".js"],
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/**/*.test.js"],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    }
   }
 }

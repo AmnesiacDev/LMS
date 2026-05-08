@@ -1,23 +1,28 @@
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import CatchAsync from "../Utilities/CatchAsync.js";
 
-import { refreshTokenService, LogOutService, LoginService, SignUpService, ProtectionService } from "../Services/AuthServices.js";
+import { refreshTokenService, LogOutService, LoginService, SignUpService, ProtectionService, ForgotPasswordService, ResetPasswordService } from "../Services/AuthServices.js";
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 const CreateAndSendTokens = (req, res, accessToken, refreshToken) => {
   const isSecure = req.secure || req.headers["x-forwarded-proto"] === "https";
 
+  // sameSite:"none" + secure:true are required when the frontend and API are on
+  // different domains (e.g. Vite on Vercel, API on Render). In development the
+  // connection is plain HTTP so we fall back to "lax" / secure:false.
+  const sameSite = isSecure ? "none" : "lax";
+
   res.cookie("accessToken", accessToken, {
     httpOnly: true,
     secure: isSecure,
-    sameSite: "lax",
+    sameSite,
     expires: new Date(Date.now() + 120 * 60 * 1000), // 120 minutes
   });
 
   res.cookie("refreshToken", refreshToken, {
     httpOnly: true,
     secure: isSecure,
-    sameSite: "lax",
+    sameSite,
     expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
   });
 };
@@ -115,4 +120,34 @@ const restrictedToController = (...allowedRoles) => {
   });
 };
 
-export { signUpController, loginController, RefreshController, logoutController, protectionController, restrictedToController };
+// ─── Forgot Password ──────────────────────────────────────────────────────────
+const forgotPasswordController = CatchAsync(async (req, res, _next) => {
+  const { email } = req.body;
+  if (!email) throw new AppErrorHelper("Email is required", 400);
+
+  const origin = process.env.CLIENT_URL || `${req.protocol}://${req.get("host")}`;
+  await ForgotPasswordService(email, origin);
+
+  // Always send the same response — never reveal whether the email exists
+  res.status(200).json({
+    status: "success",
+    message: "If that email is registered, a reset link has been sent.",
+  });
+});
+
+// ─── Reset Password ───────────────────────────────────────────────────────────
+const resetPasswordController = CatchAsync(async (req, res, _next) => {
+  const { token } = req.params;
+  const { password } = req.body;
+
+  if (!password) throw new AppErrorHelper("New password is required", 400);
+
+  await ResetPasswordService(token, password);
+
+  res.status(200).json({
+    status: "success",
+    message: "Password reset successful. Please log in with your new password.",
+  });
+});
+
+export { signUpController, loginController, RefreshController, logoutController, protectionController, restrictedToController, forgotPasswordController, resetPasswordController };
