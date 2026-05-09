@@ -1,15 +1,20 @@
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import CatchAsync from "../Utilities/CatchAsync.js";
-import { 
+import { createEvents } from "ics";
+import {
   createSessionService,
   getMyAllSessionsService,
   getMySessionByIdService,
   getAllSessionsService,
   getSessionsByInstructorService,
-  getSessionByIdService, 
-  getSessionsByStudentService, 
+  getSessionByIdService,
+  getSessionsByStudentService,
   UpdateSessionByIdService,
-  deleteSessionByIdService } from "../Services/sessionService.js";
+  deleteSessionByIdService,
+  softDeleteSessionService,
+  getCalendarSessionsService,
+  getParentStudentSessionsService,
+} from "../Services/sessionService.js";
 
 const CreateSessionController = CatchAsync(async (req, res, next) => {
   if (!req.body) {
@@ -152,14 +157,48 @@ const getMySessionByIdController = CatchAsync(async (req,res,next)=>{
 
 
 
-export { 
-  deleteSessionByIdController, 
-  UpdateSessionByIdController, 
-  getSessionByIdController, 
-  getSessionsByStudentController, 
+const softDeleteSessionController = CatchAsync(async (req, res) => {
+  await softDeleteSessionService(req.params.id);
+  res.status(200).json({ status: "success", message: "Session soft-deleted" });
+});
+
+const getCalendarController = CatchAsync(async (req, res) => {
+  const sessions = await getCalendarSessionsService(req.user);
+
+  const events = sessions.map((s) => {
+    const d = new Date(s.date);
+    return {
+      title: s.title,
+      description: s.description || "",
+      start: [d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes()],
+      duration: { hours: 1 },
+    };
+  });
+
+  const { error, value } = createEvents(events);
+  if (error) throw new AppErrorHelper("Failed to generate calendar", 500);
+
+  res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="sessions.ics"');
+  res.status(200).send(value);
+});
+
+const getParentStudentSessionsController = CatchAsync(async (req, res) => {
+  const docs = await getParentStudentSessionsService(req.user._id, req.params.studentProfileId, req.query);
+  res.status(200).json({ status: "success", results: docs.length, data: { sessions: docs } });
+});
+
+export {
+  deleteSessionByIdController,
+  UpdateSessionByIdController,
+  getSessionByIdController,
+  getSessionsByStudentController,
   getSessionsByInstructorController,
   getAllSessionsController,
   CreateSessionController,
   getMySessionByIdController,
-  getMyAllSessionController
+  getMyAllSessionController,
+  softDeleteSessionController,
+  getCalendarController,
+  getParentStudentSessionsController,
 };

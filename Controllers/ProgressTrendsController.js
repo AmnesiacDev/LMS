@@ -6,6 +6,8 @@ import {
   getAttendanceTrendsService,
   getFullProgressService,
   getChildrenComparisonService,
+  getExamAnalyticsSummaryService,
+  getParentDashboardService,
 } from "../Services/ProgressTrendsService.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 
@@ -130,6 +132,35 @@ const getChildrenComparisonController = async (req, res, next) => {
   }
 };
 
+// ─── Exam Analytics Summary ───────────────────────────────────────────────────
+
+const getExamAnalyticsSummaryController = async (req, res, next) => {
+  try {
+    const data = await getExamAnalyticsSummaryService(
+      req.user,
+      req.params.profileId || req.query.profileId,
+      { lastN: req.query.lastN || 10 }
+    );
+    res.status(200).json({ status: "success", data });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── Parent Dashboard ─────────────────────────────────────────────────────────
+
+const getParentDashboardController = async (req, res, next) => {
+  try {
+    const data = await getParentDashboardService(
+      req.user,
+      req.params.profileId || req.query.profileId
+    );
+    res.status(200).json({ status: "success", data });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export {
   getReviewTrendsController,
   getTaskTrendsController,
@@ -138,4 +169,6 @@ export {
   getAttendanceTrendsController,
   getFullProgressController,
   getChildrenComparisonController,
+  getExamAnalyticsSummaryController,
+  getParentDashboardController,
 };

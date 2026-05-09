@@ -1,4 +1,5 @@
 import express from "express";
+import multer from "multer";
 import { protectionController, restrictedToController } from "../Controllers/AuthController.js";
 
 import {
@@ -17,7 +18,19 @@ import {
   updateSubmissionStatusController,
   submitTaskController,
   reviewSubmissionController,
+  uploadSubmissionFilesController,
+  deleteSubmissionFileController,
 } from "../Controllers/SubmissionController.js";
+
+// multer with memory storage — buffers go straight to Cloudinary, nothing lands on disk
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB per file
+  fileFilter: (_req, file, cb) => {
+    const allowed = /image\/(jpeg|png|gif|webp)|application\/pdf|video\//;
+    cb(null, allowed.test(file.mimetype));
+  },
+});
 
 const router = express.Router();
 
@@ -65,5 +78,11 @@ router.patch("/:id/status", updateSubmissionStatusController);
 router.patch("/:id/review", reviewSubmissionController);
 
 router.delete("/:id", deleteSubmissionByIdController);
+
+// ─── File uploads ────────────────────────────────────────────────────────────
+// POST /submission/:id/files  — upload up to 5 files (student or instructor)
+router.post("/:id/files", upload.array("files", 5), uploadSubmissionFilesController);
+// DELETE /submission/:id/files?publicId=submissions/abc123
+router.delete("/:id/files", deleteSubmissionFileController);
 
 export default router;

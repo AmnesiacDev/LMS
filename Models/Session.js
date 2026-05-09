@@ -57,6 +57,10 @@ const sessionSchema = new mongoose.Schema(
       enum: ["pending", "completed", "canceled", "student canceled"],
       default: "pending",
     },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true },
 );
@@ -67,10 +71,19 @@ sessionSchema.index({ date: 1 });
 // Prevent duplicate session titles only within the same student, not globally
 sessionSchema.index({ studentProfileId: 1, title: 1 }, { unique: true });
 
+// Exclude soft-deleted sessions from all queries by default
+sessionSchema.pre(/^find/, function () {
+  if (!this.getOptions().withDeleted) {
+    this.find({ deletedAt: null });
+  }
+});
+
 sessionSchema.pre("save", function () {
-  const now = new Date();
-  if (this.date < now) {
-    throw new AppErrorHelper("Session Date Must be in the future", 400);
+  if (this.isNew) {
+    const now = new Date();
+    if (this.date < now) {
+      throw new AppErrorHelper("Session Date Must be in the future", 400);
+    }
   }
 });
 

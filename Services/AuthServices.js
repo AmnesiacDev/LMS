@@ -4,7 +4,8 @@ import Token from "../Models/Token.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import { ComparePasswordHelper, hashPasswordHelper } from "../Utilities/HashHelper.js";
 import { generateToken, verifyRefreshToken, verifyAccessToken } from "../Utilities/JwtHelper.js";
-import { sendPasswordResetEmail } from "../Utilities/EmailHelper.js";
+import { sendPasswordResetEmail, sendVerificationEmail } from "../Utilities/EmailHelper.js";
+import auditLog from "../Utilities/AuditLogger.js";
 import { randomUUID } from "crypto";
 
 async function SendTokenService(user) {
@@ -29,8 +30,11 @@ async function SendTokenService(user) {
   };
 }
 
-const SignUpService = async (userData) => {
+const SignUpService = async (userData, origin) => {
   const user = { ...userData };
+
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
 
   const newUser = await User.create({
     FullName: user.FullName,
@@ -40,9 +44,20 @@ const SignUpService = async (userData) => {
     role: user.role,
     avatar: user.avatar,
     isActive: user.isActive,
+    emailVerified: false,
+    emailVerificationToken: hashedToken,
+    emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
   });
-  newUser.password = undefined;
 
+  // Send verification email — non-blocking, don't fail signup if email fails
+  try {
+    const verifyUrl = `${origin}/verify-email/${rawToken}`;
+    await sendVerificationEmail({ to: newUser.Email, verifyUrl, userName: newUser.FullName });
+  } catch (err) {
+    console.error("[SignUp] Failed to send verification email:", err.message);
+  }
+
+  newUser.password = undefined;
   return newUser;
 };
 const LoginService = async (email, password) => {
@@ -55,6 +70,11 @@ const LoginService = async (email, password) => {
   // to prevent email enumeration by attackers.
   if (!user || !(await ComparePasswordHelper(password, user.password))) {
     throw new AppErrorHelper("Invalid email or password", 401);
+  }
+
+  // Students must verify their email before logging in
+  if (user.role === "student" && !user.emailVerified) {
+    throw new AppErrorHelper("Please verify your email before logging in. Check your inbox for the verification link.", 403);
   }
 
   // Remove expired tokens
@@ -176,4 +196,79 @@ const ResetPasswordService = async (rawToken, newPassword) => {
   await Token.deleteMany({ userId: user._id });
 };
 
-export { refreshTokenService, LogOutService, LoginService, SignUpService, ProtectionService, restrictedToService, ForgotPasswordService, ResetPasswordService };
+// ─── Email Verification ───────────────────────────────────────────────────────
+const VerifyEmailService = async (rawToken) => {
+  const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+  const user = await User.findOne({
+    emailVerificationToken: hashedToken,
+    emailVerificationExpires: { $gt: new Date() },
+  }).select("+emailVerificationToken +emailVerificationExpires");
+
+  if (!user) {
+    throw new AppErrorHelper("Verification link is invalid or has expired. Please sign up again.", 400);
+  }
+
+  user.emailVerified             = true;
+  user.emailVerificationToken   = undefined;
+  user.emailVerificationExpires = undefined;
+  await user.save({ validateBeforeSave: false });
+
+  return user;
+};
+
+// ─── Admin Impersonation ──────────────────────────────────────────────────────
+const ImpersonateService = async (adminUser, targetUserId, ip) => {
+  const target = await User.findById(targetUserId).select("_id role FullName Email isActive");
+  if (!target) throw new AppErrorHelper("User not found", 404);
+
+  // Issue a short-lived access token that carries an impersonation marker
+  const { accessToken } = generateToken({ _id: target._id, role: target.role }, null);
+
+  await auditLog({
+    actor: adminUser._id,
+    actorRole: adminUser.role,
+    action: "impersonate_user",
+    targetModel: "User",
+    targetId: target._id,
+    meta: { targetEmail: target.Email, targetRole: target.role },
+    ip,
+  });
+
+  return { accessToken, target };
+};
+
+// ─── Parent API Key ───────────────────────────────────────────────────────────
+const GenerateApiKeyService = async (userId) => {
+  const raw = crypto.randomBytes(32).toString("hex");
+  const hashed = crypto.createHash("sha256").update(raw).digest("hex");
+  const prefix = raw.slice(0, 8);
+
+  await User.findByIdAndUpdate(userId, { apiKeyHash: hashed, apiKeyPrefix: prefix });
+
+  // Return the raw key only once — it is never stored in plaintext
+  return `lms_${raw}`;
+};
+
+const ValidateApiKeyService = async (rawKey) => {
+  if (!rawKey?.startsWith("lms_")) return null;
+  const raw = rawKey.slice(4);
+  const hashed = crypto.createHash("sha256").update(raw).digest("hex");
+  const user = await User.findOne({ apiKeyHash: hashed }).select("_id role apiKeyPrefix").lean();
+  return user || null;
+};
+
+export {
+  refreshTokenService,
+  LogOutService,
+  LoginService,
+  SignUpService,
+  ProtectionService,
+  restrictedToService,
+  ForgotPasswordService,
+  ResetPasswordService,
+  VerifyEmailService,
+  ImpersonateService,
+  GenerateApiKeyService,
+  ValidateApiKeyService,
+};

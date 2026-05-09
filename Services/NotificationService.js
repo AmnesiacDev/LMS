@@ -1,6 +1,7 @@
 import Notification from "../Models/Notification.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
+import { emitToUser } from "../Utilities/SocketManager.js";
 
 // 1. Internal helper to create a notification (called from other services)
 const createNotificationService = async (data) => {
@@ -17,6 +18,16 @@ const createNotificationService = async (data) => {
     title,
     message,
     link,
+  });
+
+  // Push realtime event to the recipient if they are online
+  emitToUser(recipient.toString(), "notification", {
+    _id: notification._id,
+    type,
+    title,
+    message,
+    link,
+    createdAt: notification.createdAt,
   });
 
   return notification;

@@ -40,6 +40,10 @@ const TaskSchema = new mongoose.Schema(
       enum: ["pending", "completed", "canceled"],
       default: "pending",
     },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true },
 );
@@ -48,6 +52,12 @@ TaskSchema.index({ studentProfileId: 1, status: 1 });
 TaskSchema.index({ instructorId: 1 });
 TaskSchema.index({ sessionId: 1 });
 TaskSchema.index({ dueDate: 1 });
+
+TaskSchema.pre(/^find/, function () {
+  if (!this.getOptions().withDeleted) {
+    this.find({ deletedAt: null });
+  }
+});
 
 TaskSchema.pre(/^find/, async function () {
   this.populate([

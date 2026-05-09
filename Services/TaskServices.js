@@ -307,6 +307,52 @@ const getMyTasksStatsService = async (userData) => {
   };
 };
 
+// ─── Soft delete ─────────────────────────────────────────────────────────────
+const softDeleteTaskService = async (TaskId) => {
+  const task = await Task.findByIdAndUpdate(
+    TaskId,
+    { deletedAt: new Date() },
+    { new: true }
+  );
+  if (!task) throw new AppErrorHelper("Task not found!", 404);
+  return task;
+};
+
+// ─── Bulk task assignment ─────────────────────────────────────────────────────
+const createBulkTasksService = async (data) => {
+  const { sessionIds, studentProfileIds, title, description, dueDate, taskLinks, instructorId } = data;
+
+  if (!studentProfileIds?.length) throw new AppErrorHelper("studentProfileIds array is required", 400);
+  if (!sessionIds?.length) throw new AppErrorHelper("sessionIds array is required", 400);
+
+  const instructor = await User.findById(instructorId);
+  if (!instructor || instructor.role !== "instructor") {
+    throw new AppErrorHelper("Valid instructor required", 400);
+  }
+
+  const tasks = [];
+  for (const studentProfileId of studentProfileIds) {
+    for (const sessionId of sessionIds) {
+      const session = await Session.findById(sessionId);
+      if (!session) continue;
+      tasks.push({
+        sessionId,
+        studentProfileId,
+        instructorId,
+        title: title || "",
+        description: description || "",
+        dueDate: dueDate || Date.now(),
+        taskLinks: taskLinks || [],
+        status: "pending",
+        deletedAt: null,
+      });
+    }
+  }
+
+  if (!tasks.length) throw new AppErrorHelper("No valid session/student combinations found", 400);
+  return await Task.insertMany(tasks);
+};
+
 export {
   createTaskServices,
   getAllMyTasksService,
@@ -320,4 +366,6 @@ export {
   updateTaskByIdService,
   updateTaskStatusService,
   deleteTaskByIdService,
+  softDeleteTaskService,
+  createBulkTasksService,
 };

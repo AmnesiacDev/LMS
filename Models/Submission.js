@@ -41,6 +41,20 @@ const SubmissionSchema = mongoose.Schema(
         enum: ["Full mark", "Excellent", "Very Good", "Good", "Fair"],
       },
     },
+    // Cloudinary-hosted file attachments (alternative to links)
+    fileAttachments: [
+      {
+        name: { type: String, required: true },
+        url: { type: String, required: true },
+        publicId: { type: String },
+        mimeType: { type: String },
+        sizeBytes: { type: Number },
+      },
+    ],
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true },
 );
@@ -50,6 +64,12 @@ SubmissionSchema.index({ studentProfileId: 1 });
 SubmissionSchema.index({ status: 1 });
 
 // ─── Pre-find ─────────────────────────────────────────────────────────────────
+SubmissionSchema.pre(/^find/, function () {
+  if (!this.getOptions().withDeleted) {
+    this.find({ deletedAt: null });
+  }
+});
+
 SubmissionSchema.pre(/^find/, async function () {
   this.populate([
     { path: "task", select: "title dueDate" },

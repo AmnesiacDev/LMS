@@ -1,8 +1,11 @@
 import "dotenv/config";
+import http from "http";
 import mongoose from "mongoose";
 import app from "./App.js";
 import Db_Connection from "./Configs/DbConfig.js";
 import { validateEnv } from "./Configs/validateEnv.js";
+import { initSocket } from "./Utilities/SocketManager.js";
+import { startScheduler } from "./Utilities/scheduler.js";
 
 const PortNumber = process.env.PORT;
 
@@ -43,7 +46,12 @@ async function StartServer() {
 
     await Db_Connection();
 
-    const server = app.listen(PortNumber, () => {
+    // Wrap app in an HTTP server so Socket.IO and Express share the same port
+    const server = http.createServer(app);
+    initSocket(server);
+    startScheduler();
+
+    server.listen(PortNumber, () => {
       console.log(`Server is running on port ${PortNumber}`);
     });
 

@@ -12,6 +12,8 @@ import {
   updateTaskByIdService,
   deleteTaskByIdService,
   updateTaskStatusService,
+  softDeleteTaskService,
+  createBulkTasksService,
 } from "../Services/TaskServices.js";
 import CatchAsync from "../Utilities/CatchAsync.js";
 import Task from "../Models/Task.js";
@@ -177,6 +179,16 @@ const updateTaskStatusController = CatchAsync(async (req, res, next) => {
   });
 });
 
+const softDeleteTaskController = CatchAsync(async (req, res) => {
+  await softDeleteTaskService(req.params.id);
+  res.status(200).json({ status: "success", message: "Task soft-deleted" });
+});
+
+const createBulkTasksController = CatchAsync(async (req, res) => {
+  const tasks = await createBulkTasksService({ ...req.body, instructorId: req.user._id });
+  res.status(201).json({ status: "success", results: tasks.length, data: { tasks } });
+});
+
 export {
   createTaskController,
   getAllTasksController,
@@ -190,4 +202,6 @@ export {
   updateTaskByIdController,
   updateTaskStatusController,
   deleteTaskByIdController,
+  softDeleteTaskController,
+  createBulkTasksController,
 };

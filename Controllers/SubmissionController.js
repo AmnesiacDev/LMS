@@ -14,6 +14,8 @@ import {
   reviewSubmissionService,
   getSubmissionStatsByStudentIdService,
   getTasksDueDateBucketsService,
+  uploadSubmissionFilesService,
+  deleteSubmissionFileService,
 } from "../Services/SubmissionServices.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import CatchAsync from "../Utilities/CatchAsync.js";
@@ -246,6 +248,18 @@ const reviewSubmissionController = CatchAsync(async (req, res, next) => {
   });
 });
 
+const uploadSubmissionFilesController = CatchAsync(async (req, res) => {
+  const submission = await uploadSubmissionFilesService(req.params.id, req.files, req.user);
+  res.status(200).json({ status: "success", data: { submission } });
+});
+
+const deleteSubmissionFileController = CatchAsync(async (req, res, next) => {
+  const { publicId } = req.query;
+  if (!publicId) return next(new AppErrorHelper("publicId query param is required", 400));
+  const submission = await deleteSubmissionFileService(req.params.id, publicId);
+  res.status(200).json({ status: "success", data: { submission } });
+});
+
 export {
   createSubmissionController,
   getAllSubmissionsController,
@@ -262,4 +276,6 @@ export {
   updateSubmissionStatusController,
   submitTaskController,
   reviewSubmissionController,
+  uploadSubmissionFilesController,
+  deleteSubmissionFileController,
 };

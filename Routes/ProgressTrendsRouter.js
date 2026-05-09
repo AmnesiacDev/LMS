@@ -8,6 +8,8 @@ import {
   getAttendanceTrendsController,
   getFullProgressController,
   getChildrenComparisonController,
+  getExamAnalyticsSummaryController,
+  getParentDashboardController,
 } from "../Controllers/ProgressTrendsController.js";
 
 const router = express.Router();
@@ -33,5 +35,13 @@ router.get("/child/:profileId/tasks", getTaskTrendsController);
 router.get("/child/:profileId/submissions", getSubmissionTrendsController);
 router.get("/child/:profileId/exams", getExamTrendsController);
 router.get("/child/:profileId/attendance", getAttendanceTrendsController);
+
+// ─── Exam analytics summary ───────────────────────────────────────────────────
+// GET /progress/student/:profileId/summary?lastN=10
+router.get("/student/:profileId/summary", getExamAnalyticsSummaryController);
+
+// ─── Parent dashboard ─────────────────────────────────────────────────────────
+// GET /progress/parent/:profileId/dashboard
+router.get("/parent/:profileId/dashboard", restrictedToController("parent", "admin", "instructor"), getParentDashboardController);
 
 export default router;

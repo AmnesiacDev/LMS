@@ -1,6 +1,6 @@
 import express from "express";
 
-import { signUpController, loginController, RefreshController, logoutController, protectionController, restrictedToController, forgotPasswordController, resetPasswordController } from "../Controllers/AuthController.js";
+import { signUpController, loginController, RefreshController, logoutController, protectionController, restrictedToController, forgotPasswordController, resetPasswordController, verifyEmailController, impersonateController, generateApiKeyController } from "../Controllers/AuthController.js";
 
 const router = express.Router();
 
@@ -118,6 +118,7 @@ router.post("/refresh", RefreshController);
 
 router.post("/forgot-password", forgotPasswordController);
 router.post("/reset-password/:token", resetPasswordController);
+router.get("/verify-email/:token", verifyEmailController);
 
 router.use(protectionController);
 
@@ -135,5 +136,11 @@ router.use(protectionController);
  *         description: Logout successful
  */
 router.get("/logout", logoutController);
+
+// Parent: generate read-only API key
+router.post("/api-key", restrictedToController("parent"), generateApiKeyController);
+
+// Admin only: impersonate any user for debugging
+router.post("/impersonate/:userId", restrictedToController("admin"), impersonateController);
 
 export default router;

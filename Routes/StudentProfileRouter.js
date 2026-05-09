@@ -6,6 +6,7 @@ import {
   getMyStudentProfileController,
   getMyStudentProfileByIdController,
   getAllStudentProfileController,
+  getStudentTranscriptController,
 } from "../Controllers/StudentprofileController.js";
 import { protectionController, restrictedToController } from "../Controllers/AuthController.js";
 import { validate } from "../Middleware/validate.js";
@@ -20,6 +21,9 @@ router.get("/me", restrictedToController("parent" ,"student") , getMyStudentProf
 router.get("/me/:id", restrictedToController("parent" ,"student") , getMyStudentProfileByIdController);
 
 router.get("/all", restrictedToController("admin"), getAllStudentProfileController);
+
+// PDF transcript — admin and instructor can generate; parent can only get their child's
+router.get("/:id/transcript.pdf", restrictedToController("admin", "instructor", "parent"), getStudentTranscriptController);
 
 router.get("/:id", validate(profileIdSchema, "params"), getStudentProfileController);
 

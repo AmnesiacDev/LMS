@@ -534,6 +534,120 @@ const getChildrenComparisonService = async (user, { period = "monthly", from, to
   return comparisons;
 };
 
+// ─── 8. Exam Analytics Summary ───────────────────────────────────────────────
+
+const getExamAnalyticsSummaryService = async (user, profileId, { lastN = 10 } = {}) => {
+  const profileIds = await resolveProfileIds(user, profileId);
+  if (!profileIds.length) return null;
+
+  const targetId = profileIds[0];
+
+  const exams = await Exam.find({ studentProfileId: targetId })
+    .sort({ date: -1 })
+    .limit(Number(lastN))
+    .lean();
+
+  if (!exams.length) {
+    return { totalExams: 0, avgPercentage: 0, passRate: 0, weakestTopic: null, topicBreakdown: [], trend: [] };
+  }
+
+  const examWithPct = exams.map((e) => ({
+    ...e,
+    percentage: e.totalMark ? Math.round((e.score / e.totalMark) * 100) : 0,
+    passed: e.score >= e.passingMark,
+  }));
+
+  const avgPercentage = Math.round(
+    examWithPct.reduce((s, e) => s + e.percentage, 0) / examWithPct.length
+  );
+  const passRate = Math.round(
+    (examWithPct.filter((e) => e.passed).length / examWithPct.length) * 100
+  );
+
+  const topicMap = {};
+  examWithPct.forEach((e) => {
+    if (!topicMap[e.title]) topicMap[e.title] = { sum: 0, count: 0 };
+    topicMap[e.title].sum += e.percentage;
+    topicMap[e.title].count++;
+  });
+
+  const topicBreakdown = Object.entries(topicMap)
+    .map(([topic, { sum, count }]) => ({ topic, avgPercentage: Math.round(sum / count), count }))
+    .sort((a, b) => a.avgPercentage - b.avgPercentage);
+
+  const weakestTopic = topicBreakdown[0]?.topic || null;
+
+  const trend = [...examWithPct].reverse().map((e) => ({
+    date: e.date,
+    title: e.title,
+    score: e.score,
+    totalMark: e.totalMark,
+    percentage: e.percentage,
+    passed: e.passed,
+  }));
+
+  return { totalExams: exams.length, avgPercentage, passRate, weakestTopic, topicBreakdown, trend };
+};
+
+// ─── 9. Parent Dashboard ──────────────────────────────────────────────────────
+
+const getParentDashboardService = async (user, profileId) => {
+  const profileIds = await resolveProfileIds(user, profileId);
+  if (!profileIds.length) throw new AppErrorHelper("Access denied to this student profile", 403);
+
+  const targetId = profileIds[0];
+
+  const [childProfile, recentExams, upcomingTasks, latestReview, attendanceStats] = await Promise.all([
+    StudentProfile.findById(targetId).populate("user", "FullName Email UserName").lean(),
+    Exam.find({ studentProfileId: targetId }).sort({ date: -1 }).limit(5).lean(),
+    Task.find({ studentProfileId: targetId, status: "pending", dueDate: { $gte: new Date() } })
+      .sort({ dueDate: 1 })
+      .limit(5)
+      .lean(),
+    SessionReview.findOne({ studentProfileId: targetId }).sort({ createdAt: -1 }).lean(),
+    Session.aggregate([
+      { $match: { studentProfileId: targetId, deletedAt: null } },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: 1 },
+          attended: { $sum: { $cond: ["$StudentAttended", 1, 0] } },
+        },
+      },
+    ]),
+  ]);
+
+  const att = attendanceStats[0] || { total: 0, attended: 0 };
+  const attendanceRate = att.total ? Math.round((att.attended / att.total) * 100) : 0;
+
+  return {
+    student: {
+      profileId: childProfile?._id,
+      fullName: childProfile?.user?.FullName,
+      grade: childProfile?.grade,
+      attendanceStreak: childProfile?.attendanceStreak || 0,
+    },
+    attendance: { total: att.total, attended: att.attended, attendanceRate },
+    recentExams: recentExams.map((e) => ({
+      title: e.title,
+      score: e.score,
+      totalMark: e.totalMark,
+      percentage: e.totalMark ? Math.round((e.score / e.totalMark) * 100) : 0,
+      passed: e.score >= e.passingMark,
+      date: e.date,
+    })),
+    upcomingTasks: upcomingTasks.map((t) => ({ title: t.title, dueDate: t.dueDate, status: t.status })),
+    latestReview: latestReview
+      ? {
+          overAllRating: latestReview.overAllRating,
+          behavior: latestReview.Behavior,
+          understanding: latestReview.underStanding,
+          date: latestReview.createdAt,
+        }
+      : null,
+  };
+};
+
 export {
   getReviewTrendsService,
   getTaskTrendsService,
@@ -542,4 +656,6 @@ export {
   getAttendanceTrendsService,
   getFullProgressService,
   getChildrenComparisonService,
+  getExamAnalyticsSummaryService,
+  getParentDashboardService,
 };

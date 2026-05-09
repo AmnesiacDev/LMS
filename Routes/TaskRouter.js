@@ -14,6 +14,8 @@ import {
   updateTaskByIdController,
   deleteTaskByIdController,
   updateTaskStatusController,
+  softDeleteTaskController,
+  createBulkTasksController,
 } from "../Controllers/TaskController.js";
 
 const router = express.Router();
@@ -37,6 +39,7 @@ router.get("/:id", getTaskByIdController);
 router.get("/", getAllTasksController);
 
 router.post("/", createTaskController);
+router.post("/bulk", createBulkTasksController);
 
 router.patch("/:id", updateTaskByIdController);
 
@@ -44,5 +47,6 @@ router.patch("/:id/status", updateTaskStatusController);
 
 
 router.delete("/:id", deleteTaskByIdController);
+router.patch("/:id/soft-delete", softDeleteTaskController);
 
 export default router;

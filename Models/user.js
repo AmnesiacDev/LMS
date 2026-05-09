@@ -64,6 +64,26 @@ const userSchema = new schema(
       type: Date,
       select: false,
     },
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
+    emailVerificationToken: {
+      type: String,
+      select: false,
+    },
+    emailVerificationExpires: {
+      type: Date,
+      select: false,
+    },
+    // Hashed API key for parent read-only progress access
+    apiKeyHash: {
+      type: String,
+      select: false,
+    },
+    apiKeyPrefix: {
+      type: String, // first 8 chars shown to identify key without exposing full secret
+    },
   },
   { timestamps: true },
 );

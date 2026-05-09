@@ -5,6 +5,7 @@ import StudentProfile from "../Models/studentProfile.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import mongoose from "mongoose";
+import { uploadToCloudinary, deleteFromCloudinary } from "../Configs/cloudinary.js";
 
 const VALID_STATUSES = ["Pending", "Completed", "Reviewed", "Resubmitted", "Late submission"];
 
@@ -352,6 +353,56 @@ const getTasksDueDateBucketsService = async (studentProfileId) => {
   ]);
 };
 
+// ─── Upload files to Cloudinary and attach to submission ─────────────────────
+const uploadSubmissionFilesService = async (submissionId, files, userData) => {
+  const submission = await Submission.findById(submissionId);
+  if (!submission) throw new AppErrorHelper("Submission not found!", 404);
+
+  // Students can only upload to their own submission
+  if (userData.role === "student") {
+    const profile = await StudentProfile.findOne({ user: userData._id }, { _id: 1 }).lean();
+    if (!profile || submission.studentProfileId.toString() !== profile._id.toString()) {
+      throw new AppErrorHelper("Not allowed to upload to this submission!", 403);
+    }
+  }
+
+  if (!files || files.length === 0) throw new AppErrorHelper("No files provided!", 400);
+
+  const uploaded = await Promise.all(
+    files.map((file) =>
+      uploadToCloudinary(file.buffer, "submissions", {
+        public_id: `${submissionId}_${Date.now()}_${file.originalname.replace(/\s+/g, "_")}`,
+      }).then((result) => ({
+        name: file.originalname,
+        url: result.url,
+        publicId: result.publicId,
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
+      }))
+    )
+  );
+
+  submission.fileAttachments.push(...uploaded);
+  await submission.save({ validateBeforeSave: false });
+
+  return submission;
+};
+
+// ─── Remove a specific file attachment ───────────────────────────────────────
+const deleteSubmissionFileService = async (submissionId, publicId) => {
+  const submission = await Submission.findById(submissionId);
+  if (!submission) throw new AppErrorHelper("Submission not found!", 404);
+
+  const idx = submission.fileAttachments.findIndex((f) => f.publicId === publicId);
+  if (idx === -1) throw new AppErrorHelper("File not found in this submission!", 404);
+
+  await deleteFromCloudinary(publicId);
+  submission.fileAttachments.splice(idx, 1);
+  await submission.save({ validateBeforeSave: false });
+
+  return submission;
+};
+
 export {
   createSubmissionService,
   getAllSubmissionsService,
@@ -368,4 +419,6 @@ export {
   reviewSubmissionService,
   getSubmissionStatsByStudentIdService,
   getTasksDueDateBucketsService,
+  uploadSubmissionFilesService,
+  deleteSubmissionFileService,
 };

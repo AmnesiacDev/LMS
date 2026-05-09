@@ -21,6 +21,16 @@ const studentProfileSchema = new mongoose.Schema(
     notes: {
       type: String,
     },
+    attendanceStreak: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    longestStreak: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
   { timestamps: true },
 );

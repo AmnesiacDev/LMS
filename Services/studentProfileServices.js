@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import StudentProfile from "../Models/studentProfile.js";
 import User from "../Models/user.js";
+import Session from "../Models/Session.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
 
@@ -101,4 +102,37 @@ const getAllStudentProfilesService = async (QueryString) => {
   return await features.mongooseQuery;
 };
 
-export { getStudentProfileService, updateStudentProfileService, createStudentProfileService, getMyStudentProfileService, getMyStudentProfileServiceById, getAllStudentProfilesService };
+/**
+ * Recalculate and persist the attendance streak for a student profile.
+ * A streak = consecutive sessions (sorted newest-first) where StudentAttended is true.
+ * Called after any session create/update that touches StudentAttended.
+ */
+const recalculateAttendanceStreakService = async (studentProfileId) => {
+  const sessions = await Session.find(
+    { studentProfileId, deletedAt: null, status: { $ne: "canceled" } },
+    { StudentAttended: 1, date: 1 },
+    { sort: { date: -1 } }
+  ).setOptions({ withDeleted: false }).lean();
+
+  let streak = 0;
+  for (const s of sessions) {
+    if (s.StudentAttended) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+
+  const profile = await StudentProfile.findById(studentProfileId);
+  if (!profile) return;
+
+  profile.attendanceStreak = streak;
+  if (streak > (profile.longestStreak || 0)) {
+    profile.longestStreak = streak;
+  }
+  await profile.save({ validateBeforeSave: false });
+
+  return { attendanceStreak: profile.attendanceStreak, longestStreak: profile.longestStreak };
+};
+
+export { getStudentProfileService, updateStudentProfileService, createStudentProfileService, getMyStudentProfileService, getMyStudentProfileServiceById, getAllStudentProfilesService, recalculateAttendanceStreakService };

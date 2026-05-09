@@ -1,7 +1,7 @@
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import CatchAsync from "../Utilities/CatchAsync.js";
 
-import { refreshTokenService, LogOutService, LoginService, SignUpService, ProtectionService, ForgotPasswordService, ResetPasswordService } from "../Services/AuthServices.js";
+import { refreshTokenService, LogOutService, LoginService, SignUpService, ProtectionService, ForgotPasswordService, ResetPasswordService, VerifyEmailService, ImpersonateService, GenerateApiKeyService } from "../Services/AuthServices.js";
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 const CreateAndSendTokens = (req, res, accessToken, refreshToken) => {
@@ -35,10 +35,12 @@ const signUpController = CatchAsync(async (req, res, next) => {
     throw new AppErrorHelper("User data is missing while signing up!", 400);
   }
 
-  user = await SignUpService(user);
+  const origin = process.env.CLIENT_URL || `${req.protocol}://${req.get("host")}`;
+  user = await SignUpService(user, origin);
 
   res.status(201).json({
     status: "success",
+    message: "Account created. Please check your email to verify your address.",
     data: { user },
   });
 });
@@ -150,4 +152,35 @@ const resetPasswordController = CatchAsync(async (req, res, _next) => {
   });
 });
 
-export { signUpController, loginController, RefreshController, logoutController, protectionController, restrictedToController, forgotPasswordController, resetPasswordController };
+// ─── Email Verification ───────────────────────────────────────────────────────
+const verifyEmailController = CatchAsync(async (req, res) => {
+  const user = await VerifyEmailService(req.params.token);
+  res.status(200).json({
+    status: "success",
+    message: "Email verified successfully. You can now log in.",
+    data: { user: { _id: user._id, FullName: user.FullName, emailVerified: true } },
+  });
+});
+
+// ─── Admin: Impersonate User ─────────────────────────────────────────────────
+const impersonateController = CatchAsync(async (req, res) => {
+  const ip = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.ip;
+  const { accessToken, target } = await ImpersonateService(req.user, req.params.userId, ip);
+  res.status(200).json({
+    status: "success",
+    message: `Impersonating ${target.FullName}. Token valid for 2 hours.`,
+    data: { token: accessToken, target: { _id: target._id, role: target.role, FullName: target.FullName } },
+  });
+});
+
+// ─── Generate Parent API Key ──────────────────────────────────────────────────
+const generateApiKeyController = CatchAsync(async (req, res) => {
+  const key = await GenerateApiKeyService(req.user._id);
+  res.status(200).json({
+    status: "success",
+    message: "API key generated. Copy it now — it will not be shown again.",
+    data: { apiKey: key },
+  });
+});
+
+export { signUpController, loginController, RefreshController, logoutController, protectionController, restrictedToController, forgotPasswordController, resetPasswordController, verifyEmailController, impersonateController, generateApiKeyController };
