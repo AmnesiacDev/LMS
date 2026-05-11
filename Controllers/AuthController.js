@@ -35,13 +35,17 @@ const signUpController = CatchAsync(async (req, res, next) => {
     throw new AppErrorHelper("User data is missing while signing up!", 400);
   }
 
-  const origin = process.env.CLIENT_URL || `${req.protocol}://${req.get("host")}`;
-  user = await SignUpService(user, origin);
+  const result = await SignUpService(user);
+
+  CreateAndSendTokens(req, res, result.accessToken, result.refreshToken);
 
   res.status(201).json({
     status: "success",
-    message: "Account created. Please check your email to verify your address.",
-    data: { user },
+    message: "Account created. You are logged in.",
+    data: {
+      user: result.user,
+      token: result.accessToken,
+    },
   });
 });
 

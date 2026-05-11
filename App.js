@@ -34,6 +34,10 @@ import AnnouncementRouter from "./Routes/AnnouncementRouter.js";
 import AuditLogRouter from "./Routes/AuditLogRouter.js";
 
 const app = express();
+const corsOriginEnv = process.env.CORS_ORIGIN || process.env.ALLOWED_ORIGINS;
+const allowedOrigins = corsOriginEnv
+  ? corsOriginEnv.split(",").map((origin) => origin.trim()).filter(Boolean)
+  : ["http://localhost:5173", "http://127.0.0.1:5173"];
 
 // ─── 1. Security Headers (Enhanced Helmet) ──────────────────────────────────────
 app.use(
@@ -61,9 +65,7 @@ app.use(
 // ─── 2. CORS Configuration ──────────────────────────────────────────────────────
 app.use(
   cors({
-    origin: process.env.ALLOWED_ORIGINS
-      ? process.env.ALLOWED_ORIGINS.split(",")
-      : ["http://localhost:5173", "http://127.0.0.1:5173"],
+    origin: allowedOrigins,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
@@ -164,8 +166,14 @@ const sanitizeObject = (obj) => {
 app.use((req, _res, next) => {
   if (req.body)   req.body   = sanitizeObject(req.body);
   if (req.params) req.params = sanitizeObject(req.params);
-  // Reassign rather than mutate — safe for Express 5's getter-based req.query
-  req.query = sanitizeObject(req.query ?? {});
+  // Express 5 exposes req.query as a getter, so assignment throws.
+  // Define a request-local value instead of writing through the getter.
+  Object.defineProperty(req, "query", {
+    value: sanitizeObject(req.query ?? {}),
+    configurable: true,
+    enumerable: true,
+    writable: true,
+  });
   next();
 });
 

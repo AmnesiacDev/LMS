@@ -63,6 +63,9 @@ router.patch("/:id/submit", submitTaskController);
 
 router.post("/", createSubmissionController);
 
+// POST /submission/:id/files - upload up to 5 files (student, instructor, admin)
+router.post("/:id/files", upload.array("files", 5), uploadSubmissionFilesController);
+
 // ─── Restricted (instructor / admin only) ────────────────────────────────────
 
 router.use(restrictedToController("admin", "instructor"));
@@ -81,7 +84,6 @@ router.delete("/:id", deleteSubmissionByIdController);
 
 // ─── File uploads ────────────────────────────────────────────────────────────
 // POST /submission/:id/files  — upload up to 5 files (student or instructor)
-router.post("/:id/files", upload.array("files", 5), uploadSubmissionFilesController);
 // DELETE /submission/:id/files?publicId=submissions/abc123
 router.delete("/:id/files", deleteSubmissionFileController);
 

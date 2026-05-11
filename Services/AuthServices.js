@@ -30,11 +30,8 @@ async function SendTokenService(user) {
   };
 }
 
-const SignUpService = async (userData, origin) => {
+const SignUpService = async (userData, _origin) => {
   const user = { ...userData };
-
-  const rawToken = crypto.randomBytes(32).toString("hex");
-  const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
 
   const newUser = await User.create({
     FullName: user.FullName,
@@ -44,21 +41,11 @@ const SignUpService = async (userData, origin) => {
     role: user.role,
     avatar: user.avatar,
     isActive: user.isActive,
-    emailVerified: false,
-    emailVerificationToken: hashedToken,
-    emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+    emailVerified: true,          // No email verification required for any role
   });
 
-  // Send verification email — non-blocking, don't fail signup if email fails
-  try {
-    const verifyUrl = `${origin}/verify-email/${rawToken}`;
-    await sendVerificationEmail({ to: newUser.Email, verifyUrl, userName: newUser.FullName });
-  } catch (err) {
-    console.error("[SignUp] Failed to send verification email:", err.message);
-  }
-
-  newUser.password = undefined;
-  return newUser;
+  // All roles get tokens immediately — no verification step
+  return SendTokenService(newUser);
 };
 const LoginService = async (email, password) => {
   // Removed transaction support for standalone MongoDB (development environment)
@@ -70,11 +57,6 @@ const LoginService = async (email, password) => {
   // to prevent email enumeration by attackers.
   if (!user || !(await ComparePasswordHelper(password, user.password))) {
     throw new AppErrorHelper("Invalid email or password", 401);
-  }
-
-  // Students must verify their email before logging in
-  if (user.role === "student" && !user.emailVerified) {
-    throw new AppErrorHelper("Please verify your email before logging in. Check your inbox for the verification link.", 403);
   }
 
   // Remove expired tokens

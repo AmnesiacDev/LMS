@@ -1,17 +1,21 @@
 import { Server } from "socket.io";
 import { verifyAccessToken } from "./JwtHelper.js";
 
+
 let io;
 
 // Map userId (string) → Set of socket IDs so one user can have multiple tabs open
 const userSockets = new Map();
 
 export const initSocket = (httpServer) => {
+  const corsOriginEnv = process.env.CORS_ORIGIN || process.env.ALLOWED_ORIGINS;
+  const allowedOrigins = corsOriginEnv
+    ? corsOriginEnv.split(",").map((origin) => origin.trim()).filter(Boolean)
+    : ["http://localhost:5173", "http://127.0.0.1:5173"];
+
   io = new Server(httpServer, {
     cors: {
-      origin: process.env.ALLOWED_ORIGINS
-        ? process.env.ALLOWED_ORIGINS.split(",")
-        : ["http://localhost:5173", "http://127.0.0.1:5173"],
+      origin: allowedOrigins,
       credentials: true,
     },
   });
