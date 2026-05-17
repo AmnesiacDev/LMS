@@ -6,19 +6,31 @@ import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
 import mongoose from "mongoose";
 
-const createSessionReviewService = async (data) => {
+const createSessionReviewService = async (data, currentUser = null) => {
   if (!data) {
     throw new AppErrorHelper("Data is missing!", 400);
   }
 
-  const { sessionId, studentProfileId, studentId, instructorId, notes, Behavior, underStanding, participation, coding } = data;
+  // Accept both shapes: { session, ... } (what the frontend form sends) and { sessionId, ... }
+  const resolvedSessionId = data.sessionId || data.session;
+  const { studentProfileId, studentId, notes, Behavior, underStanding, participation, coding } = data;
+  // Default instructorId to the logged-in instructor when not explicitly provided
+  const resolvedInstructorId = data.instructorId
+    || (currentUser?.role === "instructor" ? currentUser._id : null);
 
-  const session = await Session.findById(sessionId);
+  if (!resolvedSessionId) {
+    throw new AppErrorHelper("sessionId (or session) is required!", 400);
+  }
+  if (!resolvedInstructorId) {
+    throw new AppErrorHelper("instructorId is required!", 400);
+  }
+
+  const session = await Session.findById(resolvedSessionId);
   if (!session) {
     throw new AppErrorHelper("Session not found!", 404);
   }
 
-  const instructor = await User.findById(instructorId);
+  const instructor = await User.findById(resolvedInstructorId);
   if (!instructor) {
     throw new AppErrorHelper("Instructor not found!", 404);
   }
@@ -34,6 +46,11 @@ const createSessionReviewService = async (data) => {
       throw new AppErrorHelper("Student profile not found!", 404);
     }
     resolvedStudentProfileId = studentProfile._id;
+  }
+
+  // Default the student profile from the session itself when the form omits it
+  if (!resolvedStudentProfileId && session.studentProfileId) {
+    resolvedStudentProfileId = session.studentProfileId;
   }
 
   if (!resolvedStudentProfileId) {
@@ -53,10 +70,16 @@ const createSessionReviewService = async (data) => {
     throw new AppErrorHelper("Cannot review a session that student did not attend", 400);
   }
 
+  // Friendly duplicate-key handling (unique index on { session, studentProfileId })
+  const existing = await SessionReview.findOne({ session: resolvedSessionId, studentProfileId: resolvedStudentProfileId });
+  if (existing) {
+    throw new AppErrorHelper("A review already exists for this session and student. Edit the existing review instead.", 409);
+  }
+
   const review = await SessionReview.create({
-    session: sessionId,
+    session: resolvedSessionId,
     studentProfileId: resolvedStudentProfileId,
-    Instructor: instructorId,
+    Instructor: resolvedInstructorId,
     notes,
     Behavior,
     underStanding,
@@ -77,10 +100,11 @@ const getAllSessionReviewsService = async (queryString, user = null) => {
   const mongooseQuery = SessionReview.find(filter)
     .populate({
       path: "studentProfileId",
-      populate: { path: "user", select: "FullName Email" }
+      select: "user grade",
+      populate: { path: "user", select: "FullName UserName Email" },
     })
     .populate({ path: "session", select: "title date" })
-    .populate({ path: "Instructor", select: "FullName" });
+    .populate({ path: "Instructor", select: "FullName UserName" });
 
   const features = new ApiFeatures(mongooseQuery, queryString).filter().sort().fields().pagination();
   return await features.mongooseQuery;

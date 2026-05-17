@@ -5,6 +5,7 @@ const SubmissionSchema = mongoose.Schema(
     task: {
       type: mongoose.Schema.ObjectId,
       ref: "Task",
+      required:true
     },
     studentProfileId: {
       type: mongoose.Schema.ObjectId,

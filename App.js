@@ -164,6 +164,10 @@ app.use(cookieParser());
 // In Express 5, req.query is a getter and direct mutation throws.
 const sanitizeObject = (obj) => {
   if (!obj || typeof obj !== "object") return obj;
+  // Preserve arrays — Object.fromEntries(Object.entries(arr)) silently turns
+  // them into plain objects ({"0": item}), which breaks Mongoose subdocument
+  // array casting (surfaces as "Path X is required" on required subfields).
+  if (Array.isArray(obj)) return obj.map(sanitizeObject);
   return Object.fromEntries(
     Object.entries(obj)
       .filter(([key]) => !key.startsWith("$") && !key.includes("."))

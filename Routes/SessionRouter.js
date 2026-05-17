@@ -10,6 +10,7 @@ import {
   CreateSessionController,
   getMyAllSessionController,
   getMySessionByIdController,
+  getMyStudentsController,
   softDeleteSessionController,
   getCalendarController,
   getParentStudentSessionsController,
@@ -20,8 +21,9 @@ const router = express.Router();
 router.use(protectionController);
 
 router.get("/me/calendar.ics", restrictedToController("student", "parent", "instructor"), getCalendarController);
-router.get("/me/:id", restrictedToController("student", "parent"), getMySessionByIdController);
-router.get("/me/", restrictedToController("student", "parent"), getMyAllSessionController);
+router.get("/me/students", restrictedToController("instructor", "admin"), getMyStudentsController);
+router.get("/me/:id", restrictedToController("student", "parent", "instructor"), getMySessionByIdController);
+router.get("/me/", restrictedToController("student", "parent", "instructor"), getMyAllSessionController);
 
 // Parent: see upcoming sessions for a specific child
 router.get("/parent/:studentProfileId", restrictedToController("parent"), getParentStudentSessionsController);

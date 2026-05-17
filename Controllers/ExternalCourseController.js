@@ -48,11 +48,7 @@ const getMyExternalCourseByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const getAllExternalCoursesController = CatchAsync(async (req, res, next) => {
-  const docs = await getAllExternalCoursesService(req.query);
-
-  if (!docs || docs.length === 0) {
-    return next(new AppErrorHelper("No documents found!", 404));
-  }
+  const docs = (await getAllExternalCoursesService(req.query)) || [];
 
   res.status(200).json({
     status: "success",
@@ -79,11 +75,7 @@ const getExternalCourseByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const getExternalCoursesByStudentController = CatchAsync(async (req, res, next) => {
-  const docs = await getExternalCourseByStudentService(req.params.id, req.query);
-
-  if (!docs || docs.length === 0) {
-    return next(new AppErrorHelper("No documents found!", 404));
-  }
+  const docs = (await getExternalCourseByStudentService(req.params.id, req.query)) || [];
 
   res.status(200).json({
     status: "success",

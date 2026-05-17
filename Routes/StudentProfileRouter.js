@@ -25,7 +25,13 @@ router.get("/all", restrictedToController("admin", "instructor"), getAllStudentP
 // PDF transcript — admin and instructor can generate; parent can only get their child's
 router.get("/:id/transcript.pdf", restrictedToController("admin", "instructor", "parent"), getStudentTranscriptController);
 
-router.get("/:id", validate(profileIdSchema, "params"), getStudentProfileController);
+// Role gate is the first line of defense; the service then enforces ownership/relationship.
+router.get(
+  "/:id",
+  restrictedToController("admin", "instructor", "parent", "student"),
+  validate(profileIdSchema, "params"),
+  getStudentProfileController,
+);
 
 router
   .route("/:id")

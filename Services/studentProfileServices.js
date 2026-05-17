@@ -5,6 +5,38 @@ import Session from "../Models/Session.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
 
+// Returns true when `currentUser` is allowed to read the given student profile.
+// - admin       → always
+// - student     → only their own profile
+// - parent      → only profiles where they are listed in `parents`
+// - instructor  → only profiles they have at least one session with
+const canAccessStudentProfile = async (currentUser, profile) => {
+  if (!currentUser || !profile) return false;
+  if (currentUser.role === "admin") return true;
+
+  if (currentUser.role === "student") {
+    const ownUserId = profile.user?._id || profile.user;
+    return ownUserId?.toString() === currentUser._id.toString();
+  }
+
+  if (currentUser.role === "parent") {
+    return (profile.parents || []).some((p) => {
+      const pid = p?._id || p;
+      return pid?.toString() === currentUser._id.toString();
+    });
+  }
+
+  if (currentUser.role === "instructor") {
+    const exists = await Session.exists({
+      instructorId: currentUser._id,
+      studentProfileId: profile._id,
+    });
+    return Boolean(exists);
+  }
+
+  return false;
+};
+
 const createStudentProfileService = async (userId, profileData) => {
   if (!userId || !profileData) {
     throw new AppErrorHelper("Student information is missing ! ", 404);
@@ -47,12 +79,20 @@ const updateStudentProfileService = async (profileId, updateData) => {
   return updatedStudentProfile;
 };
 
-const getStudentProfileService = async (profileId) => {
+const getStudentProfileService = async (profileId, currentUser = null) => {
   if (!profileId) {
     throw new AppErrorHelper("Profile ID is required ! ", 400);
   }
 
   const profile = await StudentProfile.findById(profileId);
+  if (!profile) {
+    throw new AppErrorHelper("Student profile not found", 404);
+  }
+
+  if (currentUser && !(await canAccessStudentProfile(currentUser, profile))) {
+    // Return the same 404 either way so an attacker can't probe which IDs exist.
+    throw new AppErrorHelper("Student profile not found", 404);
+  }
 
   return profile;
 };

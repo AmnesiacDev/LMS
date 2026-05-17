@@ -95,13 +95,23 @@ const getAllSubmissionsService = async (queryString = {}, user = null) => {
   let filter = {};
 
   if (user?.role === "instructor") {
-    // Find task IDs that belong to this instructor
-    const tasks = await Task.find({ instructorId: user._id }, { _id: 1 }).lean();
+    // Find task IDs that belong to this instructor (bypass populate hook + soft-delete filter for speed)
+    const tasks = await Task.find({ instructorId: user._id, deletedAt: null }, { _id: 1 })
+      .setOptions({ withDeleted: false })
+      .lean();
     const taskIds = tasks.map((t) => t._id);
     filter = { task: { $in: taskIds } };
   }
 
-  const features = new ApiFeatures(Submission.find(filter), queryString).filter().sort().fields().pagination();
+  const mongooseQuery = Submission.find(filter)
+    .populate({ path: "task", select: "title dueDate instructorId" })
+    .populate({
+      path: "studentProfileId",
+      select: "user grade",
+      populate: { path: "user", select: "FullName UserName Email" },
+    });
+
+  const features = new ApiFeatures(mongooseQuery, queryString).filter().sort().fields().pagination();
   return await features.mongooseQuery;
 };
 
@@ -162,12 +172,28 @@ const updateSubmissionByIdService = async (submissionId, data) => {
 };
 
 const deleteSubmissionByIdService = async (submissionId) => {
-  const submission = await Submission.findByIdAndDelete(submissionId);
-
+  const submission = await Submission.findById(submissionId);
   if (!submission) {
     throw new AppErrorHelper("Submission not found!", 404);
   }
 
+  // Best-effort Cloudinary cleanup BEFORE deleting the Mongo doc. If a single
+  // file fails to delete we log and continue — leaving an orphan in Cloudinary
+  // is better than leaving an orphan in Mongo with broken URLs.
+  const publicIds = (submission.fileAttachments || [])
+    .map((f) => f.publicId)
+    .filter(Boolean);
+
+  if (publicIds.length) {
+    const results = await Promise.allSettled(publicIds.map((id) => deleteFromCloudinary(id)));
+    results.forEach((r, i) => {
+      if (r.status === "rejected") {
+        console.error(`[Submission delete] Cloudinary delete failed for ${publicIds[i]}:`, r.reason?.message);
+      }
+    });
+  }
+
+  await submission.deleteOne();
   return submission;
 };
 

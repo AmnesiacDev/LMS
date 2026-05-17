@@ -116,7 +116,33 @@ const getMySessionByIdService = async (userData, sessionId) => {
     return session;
   }
 
+  if (userData.role === "instructor") {
+    const session = await Session.findOne({ _id: sessionId, instructorId: userData._id })
+      .populate({
+        path: "studentProfileId",
+        populate: { path: "user", select: "FullName Email UserName" },
+      })
+      .populate({ path: "instructorId", select: "FullName Email" });
+    return session;
+  }
+
   throw new AppErrorHelper("Not allowed!", 403);
+};
+
+const getMyStudentsService = async (user) => {
+  if (user.role === "admin") {
+    return await StudentProfile.find({}).populate({ path: "user", select: "FullName Email UserName" });
+  }
+
+  if (user.role !== "instructor") {
+    throw new AppErrorHelper("Not allowed!", 403);
+  }
+
+  const profileIds = await Session.distinct("studentProfileId", { instructorId: user._id });
+  if (!profileIds.length) return [];
+
+  return await StudentProfile.find({ _id: { $in: profileIds } })
+    .populate({ path: "user", select: "FullName Email UserName" });
 };
 
 const getAllSessionsService = async (queryString, user = null) => {
@@ -261,6 +287,7 @@ export {
   deleteSessionByIdService,
   getMyAllSessionsService,
   getMySessionByIdService,
+  getMyStudentsService,
   softDeleteSessionService,
   getCalendarSessionsService,
   autoCompleteStaleSessionsService,

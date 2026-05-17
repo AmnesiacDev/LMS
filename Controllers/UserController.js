@@ -3,11 +3,8 @@ import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import { getAllUsersService, getUserByIDService, UpdateUserByIDService, SoftDeleteUserByIDService, getMyStudentsService, createUserService } from "../Services/UserServices.js";
 
 const getAllUsersController = CatchAsync(async (req, res, next) => {
-  const query = req.query;
-  const docs = await getAllUsersService(query);
-  if (docs.length === 0 || !docs) {
-    return next(new AppErrorHelper("No documents found !", 404));
-  }
+  const docs = (await getAllUsersService(req.query)) || [];
+
   res.status(200).json({
     status: "success",
     data: {
@@ -57,13 +54,10 @@ const DeleteUserController = CatchAsync(async (req, res, next) => {
 });
 
 const getMyStudentsController = CatchAsync(async (req, res, next) => {
-  const parentId = req.params.id;
-
-  const students = getMyStudentsService(parentId);
-
-  if (students.length === 0 || !students) {
-    return next(new AppErrorHelper("No documents found !", 404));
-  }
+  // BUG FIX: original code called getMyStudentsService(parentId) without `await`,
+  // so `students` was an unresolved Promise — truthy, with no `.length` — and the
+  // following `.json(students)` was serialising a Promise instead of the array.
+  const students = (await getMyStudentsService(req.params.id)) || [];
 
   res.status(200).json({
     status: "success",

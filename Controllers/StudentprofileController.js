@@ -34,11 +34,7 @@ const getMyStudentProfileByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const getAllStudentProfileController = CatchAsync(async (req, res, next) => {
-  const profiles = await getAllStudentProfilesService(req.query);
-
-  if (profiles.length === 0) {
-    return next(new AppErrorHelper("No profiles found!", 404));
-  }
+  const profiles = (await getAllStudentProfilesService(req.query)) || [];
 
   res.status(200).json({
     status: "success",
@@ -66,11 +62,7 @@ const createStudentProfileController = CatchAsync(async (req, res, next) => {
 });
 
 const getStudentProfileController = CatchAsync(async (req, res, next) => {
-  const StudentProfile = await getStudentProfileService(req.params.id);
-
-  if (!StudentProfile) {
-    return next(new AppErrorHelper("User not found", 404));
-  }
+  const StudentProfile = await getStudentProfileService(req.params.id, req.user);
 
   res.status(200).json({
     status: "success",

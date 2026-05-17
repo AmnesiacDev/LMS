@@ -17,10 +17,10 @@ import {
 
 const createSessionReviewController = CatchAsync(async (req, res, next) => {
   if (!req.body) {
-    return next(new AppErrorHelper("Data is missing!", 404));
+    return next(new AppErrorHelper("Data is missing!", 400));
   }
 
-  const review = await createSessionReviewService(req.body);
+  const review = await createSessionReviewService(req.body, req.user);
 
   res.status(201).json({
     status: "success",
@@ -31,11 +31,7 @@ const createSessionReviewController = CatchAsync(async (req, res, next) => {
 });
 
 const getAllSessionReviewsController = CatchAsync(async (req, res, next) => {
-  const docs = await getAllSessionReviewsService(req.query, req.user);
-
-  if (!docs || docs.length === 0) {
-    return next(new AppErrorHelper("No documents found!", 404));
-  }
+  const docs = (await getAllSessionReviewsService(req.query, req.user)) || [];
 
   res.status(200).json({
     status: "success",
@@ -47,11 +43,7 @@ const getAllSessionReviewsController = CatchAsync(async (req, res, next) => {
 });
 
 const getSessionReviewsByStudentController = CatchAsync(async (req, res, next) => {
-  const docs = await getSessionReviewsByStudentService(req.params.id, req.query);
-
-  if (!docs || docs.length === 0) {
-    return next(new AppErrorHelper("No documents found!", 404));
-  }
+  const docs = (await getSessionReviewsByStudentService(req.params.id, req.query)) || [];
 
   res.status(200).json({
     status: "success",
@@ -63,11 +55,7 @@ const getSessionReviewsByStudentController = CatchAsync(async (req, res, next) =
 });
 
 const getSessionReviewsByInstructorController = CatchAsync(async (req, res, next) => {
-  const docs = await getSessionReviewsByInstructorService(req.params.id, req.query);
-
-  if (!docs || docs.length === 0) {
-    return next(new AppErrorHelper("No documents found!", 404));
-  }
+  const docs = (await getSessionReviewsByInstructorService(req.params.id, req.query)) || [];
 
   res.status(200).json({
     status: "success",
@@ -79,11 +67,7 @@ const getSessionReviewsByInstructorController = CatchAsync(async (req, res, next
 });
 
 const getSessionReviewsBySessionController = CatchAsync(async (req, res, next) => {
-  const docs = await getSessionReviewsBySessionService(req.params.id, req.query);
-
-  if (!docs || docs.length === 0) {
-    return next(new AppErrorHelper("No documents found!", 404));
-  }
+  const docs = (await getSessionReviewsBySessionService(req.params.id, req.query)) || [];
 
   res.status(200).json({
     status: "success",
@@ -95,11 +79,7 @@ const getSessionReviewsBySessionController = CatchAsync(async (req, res, next) =
 });
 
 const getAllMySessionReviewsController = CatchAsync(async (req, res, next) => {
-  const docs = await getAllMySessionReviewsService(req.user, req.query);
-
-  if (!docs || docs.length === 0) {
-    return next(new AppErrorHelper("No documents found!", 404));
-  }
+  const docs = (await getAllMySessionReviewsService(req.user, req.query)) || [];
 
   res.status(200).json({
     status: "success",

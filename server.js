@@ -49,7 +49,21 @@ async function StartServer() {
     // Wrap app in an HTTP server so Socket.IO and Express share the same port
     const server = http.createServer(app);
     initSocket(server);
-    startScheduler();
+
+    // Cron must run on exactly one process. PM2 cluster mode sets NODE_APP_INSTANCE
+    // to each worker's index ("0", "1", ...). Outside PM2 (npm start, Docker single
+    // container) the var is undefined, so we still run. Override with SCHEDULER_ENABLED.
+    const instanceIdx = process.env.NODE_APP_INSTANCE;
+    const isSchedulerWorker = instanceIdx === undefined || instanceIdx === "0";
+    const schedulerEnabled = process.env.SCHEDULER_ENABLED
+      ? process.env.SCHEDULER_ENABLED === "true"
+      : isSchedulerWorker;
+
+    if (schedulerEnabled) {
+      startScheduler();
+    } else {
+      console.log(`[Scheduler] skipped on worker ${instanceIdx} (only worker 0 runs cron)`);
+    }
 
     server.listen(PortNumber, () => {
       console.log(`Server is running on port ${PortNumber}`);

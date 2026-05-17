@@ -30,11 +30,7 @@ const createTaskController = CatchAsync(async (req, res, next) => {
 });
 
 const getAllTasksController = CatchAsync(async (req, res, next) => {
-  const tasks = await getAllTasksService(req.query, req.user);
-
-  if (!tasks) {
-    return next(new AppErrorHelper(" No tasks found ! ", 404));
-  }
+  const tasks = (await getAllTasksService(req.query, req.user)) || [];
 
   res.status(200).json({
     status: "success",
@@ -61,11 +57,7 @@ const getTaskByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const getTasksBySessionIdController = CatchAsync(async (req, res, next) => {
-  const tasks = await getTasksBySessionIdService(req.params.id, req.query);
-
-  if (!tasks) {
-    return next(new AppErrorHelper(" No tasks found ! ", 404));
-  }
+  const tasks = (await getTasksBySessionIdService(req.params.id, req.query)) || [];
 
   res.status(200).json({
     status: "success",
@@ -77,11 +69,7 @@ const getTasksBySessionIdController = CatchAsync(async (req, res, next) => {
 });
 
 const getAllMyTasksController = CatchAsync(async (req, res, next) => {
-  const tasks = await getAllMyTasksService(req.user, req.query);
-
-  if (!tasks) {
-    return next(new AppErrorHelper(" No tasks found ! ", 404));
-  }
+  const tasks = (await getAllMyTasksService(req.user, req.query)) || [];
 
   res.status(200).json({
     status: "success",
@@ -119,11 +107,7 @@ const getMyTasksStatsController = CatchAsync(async (req, res, next) => {
 });
 
 const getTasksByStudentIdController = CatchAsync(async (req, res, next) => {
-  const tasks = await getTasksByStudentIdService(req.params.id, req.query);
-
-  if (!tasks) {
-    return next(AppErrorHelper(" No tasks found ! ", 404));
-  }
+  const tasks = (await getTasksByStudentIdService(req.params.id, req.query)) || [];
 
   res.status(200).json({
     status: "success",
@@ -135,11 +119,9 @@ const getTasksByStudentIdController = CatchAsync(async (req, res, next) => {
 });
 
 const getTasksStatsByStudentIdController = CatchAsync(async (req, res, next) => {
+  // Stats service already returns a zero-filled default object when there's no data,
+  // so just pass it through.
   const tasks = await getTasksStatsByStudentIdService(req.params.id);
-
-  if (!tasks) {
-    return next(AppErrorHelper(" No tasks found ! ", 404));
-  }
 
   res.status(200).json({
     status: "success",

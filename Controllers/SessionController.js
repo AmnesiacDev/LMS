@@ -5,6 +5,7 @@ import {
   createSessionService,
   getMyAllSessionsService,
   getMySessionByIdService,
+  getMyStudentsService,
   getAllSessionsService,
   getSessionsByInstructorService,
   getSessionByIdService,
@@ -32,11 +33,7 @@ const CreateSessionController = CatchAsync(async (req, res, next) => {
 });
 
 const getAllSessionsController = CatchAsync(async (req, res, next) => {
-  const docs = await getAllSessionsService(req.query, req.user);
-
-  if (docs.length === 0 || !docs) {
-    return next(new AppErrorHelper("No documents found !", 404));
-  }
+  const docs = (await getAllSessionsService(req.query, req.user)) || [];
 
   res.status(200).json({
     status: "success",
@@ -63,10 +60,7 @@ const getSessionByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const getSessionsByInstructorController = CatchAsync(async (req, res, next) => {
-  const docs = await getSessionsByInstructorService(req.params.id, req.query);
-  if (docs.length === 0 || !docs) {
-    return next(new AppErrorHelper("No documents found !", 404));
-  }
+  const docs = (await getSessionsByInstructorService(req.params.id, req.query)) || [];
 
   res.status(200).json({
     status: "success",
@@ -78,11 +72,7 @@ const getSessionsByInstructorController = CatchAsync(async (req, res, next) => {
 });
 
 const getSessionsByStudentController = CatchAsync(async (req, res, next) => {
-  const docs = await getSessionsByStudentService(req.params.id, req.query);
-
-  if (docs.length === 0 || !docs) {
-    return next(new AppErrorHelper("No documents found !", 404));
-  }
+  const docs = (await getSessionsByStudentService(req.params.id, req.query)) || [];
 
   res.status(200).json({
     status: "success",
@@ -122,11 +112,7 @@ const deleteSessionByIdController = CatchAsync(async (req, res, next) => {
 
 const getMyAllSessionController = CatchAsync(async (req,res,next)=>{
 
-  const docs = await getMyAllSessionsService(req.user,req.query);
-
-  if(!docs || docs.length === 0 ){
-    throw new AppErrorHelper("No Data Found !" , 404);
-  }
+  const docs = (await getMyAllSessionsService(req.user,req.query)) || [];
 
  res.status(200).json({
     status: "success",
@@ -156,6 +142,18 @@ const getMySessionByIdController = CatchAsync(async (req,res,next)=>{
 
 
 
+
+const getMyStudentsController = CatchAsync(async (req, res) => {
+  const students = await getMyStudentsService(req.user);
+
+  res.status(200).json({
+    status: "success",
+    results: students.length,
+    data: {
+      students,
+    },
+  });
+});
 
 const softDeleteSessionController = CatchAsync(async (req, res) => {
   await softDeleteSessionService(req.params.id);
@@ -198,6 +196,7 @@ export {
   CreateSessionController,
   getMySessionByIdController,
   getMyAllSessionController,
+  getMyStudentsController,
   softDeleteSessionController,
   getCalendarController,
   getParentStudentSessionsController,
