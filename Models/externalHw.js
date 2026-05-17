@@ -51,20 +51,16 @@ externalHWSchema.index({ dueDate: 1 });
 
 externalHWSchema.pre("save", function () {
   if (this.status === "Completed") {
-    if (!this.submissionLinks || this.submissionLinks.length == 0) {
-      throw new Error("At least one submission link is required when marking as Completed");
-    }
-
     this.isSubmitted = true;
-
     this.submissionDate = new Date();
-    this.notes = `Great work submitted before due date ${this.dueDate}`;
+    this.notes = `Submitted before due date`;
 
     if (this.submissionDate > this.dueDate) {
       this.status = "Late submission";
-      this.notes = "submitted late";
+      this.notes = "Submitted late";
     }
   } else if (this.status == "Pending") {
+    this.isSubmitted = false;
     this.submissionDate = undefined;
     this.notes = "Waiting for submission";
   }

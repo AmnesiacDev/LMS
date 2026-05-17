@@ -1,4 +1,3 @@
-import log from "winston";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import logger from "../Utilities/Logger.js";
 
@@ -8,8 +7,8 @@ const HandleCastDbError = (err) => {
 };
 
 const HandelDuplicatesError = (err) => {
-  const field = Object.keys(err.KeyValue)[0];
-  const value = err.KeyValue[field];
+  const field = Object.keys(err.keyValue ?? {})[0];
+  const value = field ? err.keyValue[field] : "";
   const message = `Duplicated value ${value} for this key ${field} , Please use another value`;
   return new AppErrorHelper(message, 400);
 };
@@ -28,7 +27,7 @@ const HandleJwtExpirationError = () => {
 
 const DevelopmentErrorHandler = (err, req, res) => {
   logger.info(err);
-  res.status(parseInt(err.statusCode)).json({
+  res.status(Number(err.statusCode) || 500).json({
     status: err.status,
     message: err.message,
     stack: err.stack,
@@ -37,49 +36,44 @@ const DevelopmentErrorHandler = (err, req, res) => {
 };
 
 const ProductionErrorHandler = (err, req, res) => {
+  const statusCode = Number(err.statusCode) || 500;
   if (err.isOperational) {
-    res.status(err.statusCode).json({
+    res.status(statusCode).json({
       status: err.status,
       message: err.message,
     });
   } else {
     logger.error(err);
-    res.status(parseInt(err.statusCode)).json({
+    res.status(statusCode).json({
       status: "Error",
       message: "Something went wrong !",
     });
   }
 };
 
+const normalize = (err) => {
+  let normalized = { ...err, name: err.name, message: err.message, stack: err.stack };
+  if (normalized.name === "CastError") normalized = HandleCastDbError(normalized);
+  if (normalized.code === 11000) normalized = HandelDuplicatesError(normalized);
+  if (normalized.name === "ValidationError") normalized = HandleValidationError(normalized);
+  if (normalized.name === "JsonWebTokenError") normalized = HandleJwtError();
+  if (normalized.name === "TokenExpiredError") normalized = HandleJwtExpirationError();
+  return normalized;
+};
+
 const GlobalErrorHandler = (err, req, res, next) => {
   err.status = err.status || "fail";
-  err.statusCode = err.statusCode || "500";
+  err.statusCode = err.statusCode || 500;
 
-  // Default to Development mode if NODE_ENV is not set
-  const environment = process.env.NODE_ENV || "Development";
+  const isProduction = (process.env.NODE_ENV || "development").toLowerCase() === "production";
 
-  if (environment === "Development") {
-    let devErr = { ...err, name: err.name, message: err.message, stack: err.stack };
-    if (devErr.name === "CastError") devErr = HandleCastDbError(devErr);
-    if (devErr.code === 11000) devErr = HandelDuplicatesError(devErr);
-    if (devErr.name === "ValidationError") devErr = HandleValidationError(devErr);
-    if (devErr.name === "JsonWebTokenError") devErr = HandleJwtError();
-    if (devErr.name === "TokenExpiredError") devErr = HandleJwtExpirationError();
-    
-    // Ensure we keep the original stack for debugging in dev
-    devErr.stack = err.stack;
-    
-    DevelopmentErrorHandler(devErr, req, res);
-  } else {
-    const error = { ...err };
-
-    if (error.name === "CastError") error = HandleCastDbError(error);
-    if (error.code === 11000) error = HandelDuplicatesError(error);
-    if (error.name === "ValidationError") error = HandleValidationError(error);
-    if (error.name === "JsonWebTokenError") error = HandleJwtError();
-    if (error.name === "TokenExpiredError") error = HandleJwtExpirationError();
-
+  if (isProduction) {
+    const error = normalize(err);
     ProductionErrorHandler(error, req, res);
+  } else {
+    const devErr = normalize(err);
+    devErr.stack = err.stack;
+    DevelopmentErrorHandler(devErr, req, res);
   }
 };
 

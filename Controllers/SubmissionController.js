@@ -40,7 +40,7 @@ const createSubmissionController = CatchAsync(async (req, res, next) => {
  * Supports filtering, sorting, field selection, pagination via query string
  */
 const getAllSubmissionsController = CatchAsync(async (req, res, next) => {
-  const submissions = await getAllSubmissionsService(req.query);
+  const submissions = await getAllSubmissionsService(req.query, req.user);
 
   res.status(200).json({
     status: "success",
@@ -208,13 +208,13 @@ const updateSubmissionStatusController = CatchAsync(async (req, res, next) => {
  * Body: { links: [{ name, url }] }
  */
 const submitTaskController = CatchAsync(async (req, res, next) => {
-  const { links } = req.body;
+  const { links, note } = req.body;
 
   if (!links || !Array.isArray(links) || links.length === 0) {
     return next(new AppErrorHelper("Links array is required!", 400));
   }
 
-  const submission = await submitTaskService(req.params.id, links);
+  const submission = await submitTaskService(req.params.id, links, note);
 
   res.status(200).json({
     status: "success",
@@ -256,7 +256,7 @@ const uploadSubmissionFilesController = CatchAsync(async (req, res) => {
 const deleteSubmissionFileController = CatchAsync(async (req, res, next) => {
   const { publicId } = req.query;
   if (!publicId) return next(new AppErrorHelper("publicId query param is required", 400));
-  const submission = await deleteSubmissionFileService(req.params.id, publicId);
+  const submission = await deleteSubmissionFileService(req.params.id, publicId, req.user);
   res.status(200).json({ status: "success", data: { submission } });
 });
 

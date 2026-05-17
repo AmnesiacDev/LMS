@@ -67,8 +67,14 @@ const createSessionReviewService = async (data) => {
   return review;
 };
 
-const getAllSessionReviewsService = async (queryString) => {
-  const mongooseQuery = SessionReview.find({})
+const getAllSessionReviewsService = async (queryString, user = null) => {
+  let filter = {};
+
+  if (user?.role === "instructor") {
+    filter = { Instructor: user._id };
+  }
+
+  const mongooseQuery = SessionReview.find(filter)
     .populate({
       path: "studentProfileId",
       populate: { path: "user", select: "FullName Email" }
@@ -77,9 +83,7 @@ const getAllSessionReviewsService = async (queryString) => {
     .populate({ path: "Instructor", select: "FullName" });
 
   const features = new ApiFeatures(mongooseQuery, queryString).filter().sort().fields().pagination();
-
-  const reviews = await features.mongooseQuery;
-  return reviews;
+  return await features.mongooseQuery;
 };
 
 const getSessionReviewsByStudentService = async (studentProfileId, queryString = {}) => {
@@ -109,18 +113,19 @@ const getSessionReviewsBySessionService = async (sessionId, queryString = {}) =>
 };
 
 const updateSessionReviewByIdService = async (reviewId, data) => {
-  const options = {
-    new: true,
-    runValidators: true,
-  };
-
-  const review = await SessionReview.findByIdAndUpdate(reviewId, data, options);
+  const review = await SessionReview.findById(reviewId);
 
   if (!review) {
     throw new AppErrorHelper("Review not found!", 404);
   }
 
-  return review;
+  if (data.Behavior !== undefined) review.Behavior = data.Behavior;
+  if (data.underStanding !== undefined) review.underStanding = data.underStanding;
+  if (data.participation !== undefined) review.participation = data.participation;
+  if (data.coding !== undefined) review.coding = data.coding;
+  if (data.notes !== undefined) review.notes = data.notes;
+
+  return await review.save();
 };
 
 const deleteSessionReviewByIdService = async (reviewId) => {

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand)",
+      "Bash(node -p \"'a'.repeat\\(40\\)\")",
+      "Bash(node -p \"'b'.repeat\\(40\\)\")",
+      "Bash(CONNECTION_STRING=x PORT=3000 NODE_ENV=production SALT_ROUNDS=12 JWT_TOKEN_SECRET=$\\(node -p \"'a'.repeat\\(40\\)\"\\) JWT_TOKEN_EXPIRES_IN=15m JWT_REFRESH_TOKEN_SECRET=$\\(node -p \"'b'.repeat\\(40\\)\"\\) JWT_REFRESH_EXPIRES_IN=9 node -e \"import\\('./App.js'\\).then\\(\\(\\)=>console.log\\('App.js loads OK'\\)\\).catch\\(e=>{console.error\\('FAIL',e\\);process.exit\\(1\\)}\\)\")",
+      "Bash(node --check Routes/SubmissionRouter.js)",
+      "Bash(node --check Controllers/SubmissionController.js)",
+      "Bash(node --check Services/SubmissionServices.js)"
+    ]
+  }
+}

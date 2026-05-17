@@ -63,28 +63,23 @@ router.patch("/:id/submit", submitTaskController);
 
 router.post("/", createSubmissionController);
 
-// POST /submission/:id/files - upload up to 5 files (student, instructor, admin)
+// ─── File attachments (owner student, instructor, or admin) ──────────────────
+// POST   /submission/:id/files            — upload up to 5 files
+// DELETE /submission/:id/files?publicId=submissions/abc123
+// Ownership is enforced in the service: a student may only touch their own submission.
 router.post("/:id/files", upload.array("files", 5), uploadSubmissionFilesController);
+router.delete("/:id/files", deleteSubmissionFileController);
 
 // ─── Restricted (instructor / admin only) ────────────────────────────────────
 
 router.use(restrictedToController("admin", "instructor"));
 
-
-
 router.patch("/:id", updateSubmissionByIdController);
-
 
 router.patch("/:id/status", updateSubmissionStatusController);
 
- 
 router.patch("/:id/review", reviewSubmissionController);
 
 router.delete("/:id", deleteSubmissionByIdController);
-
-// ─── File uploads ────────────────────────────────────────────────────────────
-// POST /submission/:id/files  — upload up to 5 files (student or instructor)
-// DELETE /submission/:id/files?publicId=submissions/abc123
-router.delete("/:id/files", deleteSubmissionFileController);
 
 export default router;

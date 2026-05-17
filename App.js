@@ -34,6 +34,16 @@ import AnnouncementRouter from "./Routes/AnnouncementRouter.js";
 import AuditLogRouter from "./Routes/AuditLogRouter.js";
 
 const app = express();
+
+// Behind a PaaS/reverse proxy (Render, Fly, Heroku, Nginx), trust the first
+// X-Forwarded-* hop so req.ip and express-rate-limit key on the real client IP.
+app.set("trust proxy", Number(process.env.TRUST_PROXY ?? 1));
+
+// Normalize NODE_ENV once so every check below is case-insensitive and consistent.
+const NODE_ENV = (process.env.NODE_ENV || "development").toLowerCase();
+const isProduction = NODE_ENV === "production";
+const isDevelopment = NODE_ENV === "development";
+
 const corsOriginEnv = process.env.CORS_ORIGIN || process.env.ALLOWED_ORIGINS;
 const allowedOrigins = corsOriginEnv
   ? corsOriginEnv.split(",").map((origin) => origin.trim()).filter(Boolean)
@@ -54,7 +64,7 @@ app.use(
       },
     },
     crossOriginEmbedderPolicy: false,
-    hsts: process.env.NODE_ENV === "production" ? {
+    hsts: isProduction ? {
       maxAge: 31536000,
       includeSubDomains: true,
       preload: true,
@@ -82,7 +92,7 @@ const apiLimiter = rateLimit({
   message: "Too many requests from this IP, please try again after 15 minutes.",
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV?.toLowerCase() === "development" || req.path === "/api/v1/health" || req.path === "/api-docs",
+  skip: (req) => isDevelopment || req.path === "/api/v1/health" || req.path === "/api-docs",
 });
 app.use("/api", apiLimiter);
 
@@ -100,7 +110,7 @@ const authLimiter = rateLimit({
   message: "Too many authentication attempts, please try again after 15 minutes.",
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => process.env.NODE_ENV === "development",
+  skip: (req) => isDevelopment,
   keyGenerator: (req) => {
     // Use email for login, IP for signup to limit per account
     if (req.body?.email) {
@@ -121,8 +131,6 @@ app.use((req, _res, next) => {
 
 // In production, write to stdout so the PaaS host (Render/Fly/etc.) aggregates logs.
 // Local file logs vanish on every deploy on free hosts, so stdout is the right target.
-const isProduction = process.env.NODE_ENV === "production";
-
 if (isProduction) {
   app.use(morgan("combined"));
 } else {

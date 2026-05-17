@@ -76,6 +76,13 @@ const getMyAllSessionsService = async (user, queryString) => {
 
     const childrenIds = childrenProfiles.map((profile) => profile._id);
     mongooseQuery = Session.find({ studentProfileId: { $in: childrenIds } });
+  } else if (user.role === "instructor") {
+    mongooseQuery = Session.find({ instructorId: user._id })
+      .populate({
+        path: "studentProfileId",
+        populate: { path: "user", select: "FullName Email UserName" }
+      })
+      .populate({ path: "instructorId", select: "FullName Email" });
   } else {
     throw new AppErrorHelper("Not allowed", 403);
   }
@@ -112,17 +119,22 @@ const getMySessionByIdService = async (userData, sessionId) => {
   throw new AppErrorHelper("Not allowed!", 403);
 };
 
-const getAllSessionsService = async (queryString) => {
-  const mongooseQuery = Session.find({})
+const getAllSessionsService = async (queryString, user = null) => {
+  let filter = {};
+
+  if (user?.role === "instructor") {
+    filter = { instructorId: user._id };
+  }
+
+  const mongooseQuery = Session.find(filter)
     .populate({
       path: "studentProfileId",
       populate: { path: "user", select: "FullName Email UserName" }
     })
     .populate({ path: "instructorId", select: "FullName Email" });
-  const features = new ApiFeatures(mongooseQuery, queryString).filter().sort().fields().pagination();
 
-  const sessions = await features.mongooseQuery;
-  return sessions;
+  const features = new ApiFeatures(mongooseQuery, queryString).filter().sort().fields().pagination();
+  return await features.mongooseQuery;
 };
 
 

@@ -91,9 +91,17 @@ const createSubmissionService = async (data, userData) => {
   return submission;
 };
 
-const getAllSubmissionsService = async (queryString = {}) => {
-  const features = new ApiFeatures(Submission.find({}), queryString).filter().sort().fields().pagination();
+const getAllSubmissionsService = async (queryString = {}, user = null) => {
+  let filter = {};
 
+  if (user?.role === "instructor") {
+    // Find task IDs that belong to this instructor
+    const tasks = await Task.find({ instructorId: user._id }, { _id: 1 }).lean();
+    const taskIds = tasks.map((t) => t._id);
+    filter = { task: { $in: taskIds } };
+  }
+
+  const features = new ApiFeatures(Submission.find(filter), queryString).filter().sort().fields().pagination();
   return await features.mongooseQuery;
 };
 
@@ -178,7 +186,7 @@ const updateSubmissionStatusService = async (id, status) => {
 };
 
 // ─── Submit task (student action)
-const submitTaskService = async (submissionId, links) => {
+const submitTaskService = async (submissionId, links, note) => {
   const submission = await Submission.findById(submissionId);
 
   if (!submission) {
@@ -191,6 +199,7 @@ const submitTaskService = async (submissionId, links) => {
 
   submission.Task_links = links;
   submission.status = "Completed";
+  if (note !== undefined) submission.note = note;
 
   return await submission.save();
 };
@@ -257,7 +266,8 @@ const getAllMySubmissionsService = async (userData, queryString = {}) => {
     .fields()
     .pagination();
 
-  return await features.mongooseQuery;
+  return await features.mongooseQuery
+    .populate('task', 'title dueDate');
 };
 
 const getMySubmissionService = async (userData, submissionId) => {
@@ -361,7 +371,7 @@ const uploadSubmissionFilesService = async (submissionId, files, userData) => {
   // Students can only upload to their own submission
   if (userData.role === "student") {
     const profile = await StudentProfile.findOne({ user: userData._id }, { _id: 1 }).lean();
-    if (!profile || submission.studentProfileId.toString() !== profile._id.toString()) {
+    if (!profile || getDocumentId(submission.studentProfileId) !== profile._id.toString()) {
       throw new AppErrorHelper("Not allowed to upload to this submission!", 403);
     }
   }
@@ -389,9 +399,17 @@ const uploadSubmissionFilesService = async (submissionId, files, userData) => {
 };
 
 // ─── Remove a specific file attachment ───────────────────────────────────────
-const deleteSubmissionFileService = async (submissionId, publicId) => {
+const deleteSubmissionFileService = async (submissionId, publicId, userData) => {
   const submission = await Submission.findById(submissionId);
   if (!submission) throw new AppErrorHelper("Submission not found!", 404);
+
+  // Students can only delete files from their own submission
+  if (userData.role === "student") {
+    const profile = await StudentProfile.findOne({ user: userData._id }, { _id: 1 }).lean();
+    if (!profile || getDocumentId(submission.studentProfileId) !== profile._id.toString()) {
+      throw new AppErrorHelper("Not allowed to modify files on this submission!", 403);
+    }
+  }
 
   const idx = submission.fileAttachments.findIndex((f) => f.publicId === publicId);
   if (idx === -1) throw new AppErrorHelper("File not found in this submission!", 404);

@@ -109,13 +109,7 @@ const deleteExternalHWController = CatchAsync(async (req, res, next) => {
 
 // ─── Mark HW as Complete ──────────────────────────────────────────────
 const markExternalHWCompleteController = CatchAsync(async (req, res, next) => {
-  const { submissionLinks } = req.body;
-
-  if (!submissionLinks || submissionLinks.length === 0) {
-    return next(new AppErrorHelper("At least one submission link is required!", 400));
-  }
-
-  const hw = await markExternalHwCompleteService(req.params.id, submissionLinks);
+  const hw = await markExternalHwCompleteService(req.params.id);
 
   res.status(200).json({
     status: "success",

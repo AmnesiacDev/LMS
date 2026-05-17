@@ -30,7 +30,7 @@ const createTaskController = CatchAsync(async (req, res, next) => {
 });
 
 const getAllTasksController = CatchAsync(async (req, res, next) => {
-  const tasks = await getAllTasksService(req.query);
+  const tasks = await getAllTasksService(req.query, req.user);
 
   if (!tasks) {
     return next(new AppErrorHelper(" No tasks found ! ", 404));

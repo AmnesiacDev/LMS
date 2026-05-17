@@ -31,7 +31,7 @@ const createSessionReviewController = CatchAsync(async (req, res, next) => {
 });
 
 const getAllSessionReviewsController = CatchAsync(async (req, res, next) => {
-  const docs = await getAllSessionReviewsService(req.query);
+  const docs = await getAllSessionReviewsService(req.query, req.user);
 
   if (!docs || docs.length === 0) {
     return next(new AppErrorHelper("No documents found!", 404));

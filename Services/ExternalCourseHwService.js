@@ -162,7 +162,7 @@ const deleteExternalHwService = async (hwId) => {
   return hw;
 };
 
-const markExternalHwCompleteService = async (hwId, submissionLinks) => {
+const markExternalHwCompleteService = async (hwId) => {
   const hw = await ExternalHW.findById(hwId);
 
   if (!hw) {
@@ -175,10 +175,6 @@ const markExternalHwCompleteService = async (hwId, submissionLinks) => {
 
   if (hw.status === "Canceled") {
     throw new AppErrorHelper("Cannot complete a canceled homework!", 400);
-  }
-
-  if (submissionLinks && submissionLinks.length > 0) {
-    hw.submissionLinks = submissionLinks;
   }
 
   hw.status = "Completed";

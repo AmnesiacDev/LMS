@@ -32,7 +32,7 @@ const CreateSessionController = CatchAsync(async (req, res, next) => {
 });
 
 const getAllSessionsController = CatchAsync(async (req, res, next) => {
-  const docs = await getAllSessionsService(req.query);
+  const docs = await getAllSessionsService(req.query, req.user);
 
   if (docs.length === 0 || !docs) {
     return next(new AppErrorHelper("No documents found !", 404));

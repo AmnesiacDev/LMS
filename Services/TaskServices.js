@@ -54,9 +54,22 @@ const createTaskServices = async (data) => {
   });
 };
 
-const getAllTasksService = async (queryString = {}) => {
-  const features = new ApiFeatures(Task.find({}), queryString).filter().sort().fields().pagination();
+// ─── Helper: get student profile IDs for an instructor (via sessions) ────────
+const getInstructorStudentProfileIds = async (instructorId) => {
+  const sessions = await Session.find({ instructorId }, { studentProfileId: 1 }).lean();
+  const ids = [...new Set(sessions.map((s) => s.studentProfileId.toString()))];
+  return ids.map((id) => new mongoose.Types.ObjectId(id));
+};
 
+const getAllTasksService = async (queryString = {}, user = null) => {
+  let filter = {};
+
+  if (user?.role === "instructor") {
+    const profileIds = await getInstructorStudentProfileIds(user._id);
+    filter = { instructorId: user._id, studentProfileId: { $in: profileIds } };
+  }
+
+  const features = new ApiFeatures(Task.find(filter), queryString).filter().sort().fields().pagination();
   return await features.mongooseQuery;
 };
 

@@ -20,7 +20,7 @@ router.get("/me", restrictedToController("parent" ,"student") , getMyStudentProf
 
 router.get("/me/:id", restrictedToController("parent" ,"student") , getMyStudentProfileByIdController);
 
-router.get("/all", restrictedToController("admin"), getAllStudentProfileController);
+router.get("/all", restrictedToController("admin", "instructor"), getAllStudentProfileController);
 
 // PDF transcript — admin and instructor can generate; parent can only get their child's
 router.get("/:id/transcript.pdf", restrictedToController("admin", "instructor", "parent"), getStudentTranscriptController);
