@@ -9,6 +9,10 @@ import {
   sendTaskReminderEmail,
   sendWeeklySummaryEmail,
 } from "./EmailHelper.js";
+import ScheduleEntry from "../Models/ScheduleEntry.js";
+import ScheduleSeries from "../Models/ScheduleSeries.js";
+import Notification from "../Models/Notification.js";
+import { materializeSeriesService } from "../Services/scheduleSeriesService.js";
 
 const startScheduler = () => {
   // ─── Auto-complete sessions that ended 2+ hours ago (every hour) ─────────
@@ -95,6 +99,93 @@ const startScheduler = () => {
       );
     } catch (err) {
       console.error("[Scheduler] Weekly summary error:", err.message);
+    }
+  });
+
+  // ─── Schedule reminder notifications (every 5 minutes) ───────────────────────
+  cron.schedule("*/5 * * * *", async () => {
+    try {
+      const now = new Date();
+      const entries = await ScheduleEntry.find({
+        deletedAt: null,
+        "reminders.sentAt": null,
+        startAt: { $gt: now },
+      }).populate({ path: "studentProfileId", populate: { path: "user", select: "_id FullName" } });
+
+      await Promise.allSettled(
+        entries.map(async (entry) => {
+          try {
+            let modified = false;
+            for (const reminder of entry.reminders) {
+              if (reminder.sentAt !== null) continue;
+              const fireAt = new Date(entry.startAt.getTime() - reminder.minutesBefore * 60 * 1000);
+              if (now < fireAt) continue;
+
+              const studentUserId = entry.studentProfileId?.user?._id;
+              if (!studentUserId) continue;
+
+              const minutesLabel = reminder.minutesBefore >= 60
+                ? `${reminder.minutesBefore / 60} hour(s)`
+                : `${reminder.minutesBefore} minute(s)`;
+
+              // Notify student
+              const studentNotif = await Notification.create({
+                recipient: studentUserId,
+                type: "schedule_reminder",
+                title: entry.title,
+                message: `Reminder: "${entry.title}" starts in ${minutesLabel}`,
+              });
+              reminder.sentAt = now;
+              reminder.notificationId = studentNotif._id;
+              modified = true;
+
+              // Also notify instructor for session entries
+              if (entry.entryType === "session" && entry.instructorId) {
+                await Notification.create({
+                  recipient: entry.instructorId,
+                  type: "schedule_reminder",
+                  title: entry.title,
+                  message: `Reminder: "${entry.title}" starts in ${minutesLabel}`,
+                });
+              }
+            }
+            if (modified) await entry.save();
+          } catch (entryErr) {
+            console.error("[Scheduler] Reminder error for entry", entry._id, ":", entryErr.message);
+          }
+        })
+      );
+    } catch (err) {
+      console.error("[Scheduler] Schedule reminder cron error:", err.message);
+    }
+  });
+
+  // ─── Extend series materialization horizon (daily at midnight UTC) ────────────
+  cron.schedule("0 0 * * *", async () => {
+    try {
+      const horizon = new Date(Date.now() + 12 * 7 * 24 * 60 * 60 * 1000);
+      const series = await ScheduleSeries.find({
+        deletedAt: null,
+        $or: [
+          { materializedUntil: { $lt: horizon } },
+          { materializedUntil: null },
+        ],
+      });
+
+      await Promise.allSettled(
+        series.map(async (s) => {
+          try {
+            const fromDate = s.materializedUntil ? new Date(s.materializedUntil) : new Date(s.startsOn);
+            await materializeSeriesService(s, fromDate, horizon);
+            s.materializedUntil = horizon;
+            await s.save();
+          } catch (seriesErr) {
+            console.error("[Scheduler] Series materialization error for series", s._id, ":", seriesErr.message);
+          }
+        })
+      );
+    } catch (err) {
+      console.error("[Scheduler] Series horizon cron error:", err.message);
     }
   });
 

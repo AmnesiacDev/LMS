@@ -32,6 +32,7 @@ import MessageRouter from "./Routes/MessageRouter.js";
 import NotificationRouter from "./Routes/NotificationRouter.js";
 import AnnouncementRouter from "./Routes/AnnouncementRouter.js";
 import AuditLogRouter from "./Routes/AuditLogRouter.js";
+import scheduleRouter from "./Routes/ScheduleRouter.js";
 
 const app = express();
 
@@ -269,6 +270,7 @@ app.use("/api/v1/messages", MessageRouter);
 app.use("/api/v1/notifications", NotificationRouter);
 app.use("/api/v1/announcements", AnnouncementRouter);
 app.use("/api/v1/audit-logs", AuditLogRouter);
+app.use("/api/v1/schedule", scheduleRouter);
 
 // ─── 14. 404 Handler ────────────────────────────────────────────────────────────
 app.all(/.*/, (req, res, next) => {

@@ -87,6 +87,45 @@ sessionSchema.pre("save", function () {
   }
 });
 
+sessionSchema.post("save", async function () {
+  try {
+    const ScheduleEntry = (await import('./ScheduleEntry.js')).default;
+    if (this.isNew) {
+      await ScheduleEntry.create({
+        entryType: "session",
+        sessionId: this._id,
+        studentProfileId: this.studentProfileId,
+        instructorId: this.instructorId,
+        title: this.title,
+        startAt: this.date,
+        endAt: new Date(this.date.getTime() + 60 * 60 * 1000),
+        reminders: [
+          { minutesBefore: 60, sentAt: null },
+          { minutesBefore: 1440, sentAt: null },
+        ],
+      });
+    } else if (this.isModified('date')) {
+      await ScheduleEntry.findOneAndUpdate(
+        { sessionId: this._id, deletedAt: null },
+        { startAt: this.date, endAt: new Date(this.date.getTime() + 60 * 60 * 1000) }
+      );
+    } else if (this.isModified('status')) {
+      await ScheduleEntry.findOneAndUpdate(
+        { sessionId: this._id, deletedAt: null },
+        { status: this.status }
+      );
+    } else if (this.isModified('deletedAt') && this.deletedAt) {
+      await ScheduleEntry.findOneAndUpdate(
+        { sessionId: this._id },
+        { deletedAt: new Date() },
+        { setOptions: { withDeleted: true } }
+      );
+    }
+  } catch (err) {
+    console.error('[Session hook] ScheduleEntry sync failed:', err.message);
+  }
+});
+
 const Session = mongoose.model("Session", sessionSchema);
 
 export default Session;
