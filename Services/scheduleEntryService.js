@@ -5,9 +5,22 @@ import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 
 // ─── Get entries within a date range, scoped by role ─────────────────────────
 const getEntriesService = async (user, startDate, endDate) => {
+  // Query params arrive as strings (e.g. "2026-05-23"). MongoDB's $gte/$lte
+  // on a Date field require actual Date objects — comparing a Date field
+  // against a raw string does a BSON-type mismatch and returns zero results.
+  const parsedStart = new Date(startDate);
+  const parsedEnd   = new Date(endDate);
+
+  // If endDate is a bare date (no time component), push it to end-of-day so
+  // entries on that day are included.
+  if (endDate && !endDate.includes("T")) {
+    parsedEnd.setUTCHours(23, 59, 59, 999);
+  }
+
   let filter = {
-    startAt: { $gte: startDate, $lte: endDate },
+    startAt: { $gte: parsedStart, $lte: parsedEnd },
   };
+
 
   if (user.role === "student") {
     const profile = await StudentProfile.findOne({ user: user._id });
