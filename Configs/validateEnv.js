@@ -9,7 +9,7 @@
 
 const requiredEnvVars = ["CONNECTION_STRING", "PORT", "NODE_ENV", "SALT_ROUNDS", "JWT_TOKEN_SECRET", "JWT_TOKEN_EXPIRES_IN", "JWT_REFRESH_TOKEN_SECRET", "JWT_REFRESH_EXPIRES_IN", "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"];
 
-const optionalEnvVars = ["PRODUCTION_ConnectionString", "CLIENT_URL", "ALLOWED_ORIGINS", "CORS_ORIGIN"];
+const optionalEnvVars = ["PRODUCTION_ConnectionString", "CLIENT_URL", "ALLOWED_ORIGINS", "CORS_ORIGIN", "AI_API_KEY", "AI_BASE_URL", "AI_MODEL"];
 
 /**
  * Validates that all required environment variables are set

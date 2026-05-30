@@ -87,23 +87,29 @@ SubmissionSchema.pre("save", async function () {
 
   if (!task) return;
 
+  // Keep the student's own note if they wrote one; only fall back to the
+  // default "system" note when the note was left blank.
+  const hasNote = typeof this.note === "string" && this.note.trim().length > 0;
+
   if (this.status === "Completed") {
-    if (!this.Task_links || this.Task_links.length === 0) {
-      throw new Error("At least one submission link is required when marking as Completed");
+    const hasLinks = this.Task_links && this.Task_links.length > 0;
+    const hasFiles = this.fileAttachments && this.fileAttachments.length > 0;
+    if (!hasLinks && !hasFiles) {
+      throw new Error("At least one submission link or file is required when marking as Completed");
     }
 
     this.SubmissionDate = new Date();
-    this.note = "Great job!";
+    if (!hasNote) this.note = "Great job!";
 
     if (this.SubmissionDate > task.dueDate) {
       this.status = "Late submission";
-      this.note = "Late submission";
+      if (!hasNote) this.note = "Late submission";
     }
   } else if (this.status === "Pending") {
     this.SubmissionDate = undefined;
-    this.note = "Waiting for Submission!";
+    if (!hasNote) this.note = "Waiting for Submission!";
   } else if (this.status === "Resubmitted") {
-    this.note = "Please review the task and resubmit!";
+    if (!hasNote) this.note = "Please review the task and resubmit!";
   }
 
   if (this.review && this.review.score !== undefined && this.review.score !== null) {

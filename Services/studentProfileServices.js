@@ -37,23 +37,44 @@ const canAccessStudentProfile = async (currentUser, profile) => {
   return false;
 };
 
-const createStudentProfileService = async (userId, profileData) => {
+const createStudentProfileService = async (userId, profileData, currentUser) => {
   if (!userId || !profileData) {
-    throw new AppErrorHelper("Student information is missing ! ", 404);
+    throw new AppErrorHelper("Student information is missing!", 400);
+  }
+  if (!currentUser) {
+    throw new AppErrorHelper("You are not logged in!", 401);
+  }
+
+  const targetUser = await User.findById(userId);
+  if (!targetUser || !targetUser.isActive) {
+    throw new AppErrorHelper("User not found!", 404);
+  }
+  if (targetUser.role !== "student") {
+    throw new AppErrorHelper("This user can't have a Student profile", 400);
+  }
+
+  // Authorization — prevent IDOR on the target user
+  if (currentUser.role === "student") {
+    if (targetUser._id.toString() !== currentUser._id.toString()) {
+      throw new AppErrorHelper("You can only create your own profile!", 403);
+    }
+  } else if (currentUser.role === "parent") {
+    // Parent may onboard any student-role user, but the parents list is
+    // force-set to themselves so they can't slip in third-party "parents".
+    profileData = { ...profileData, parents: [currentUser._id] };
+  }
+  // admin: unrestricted
+
+  // Enforce one-profile-per-user (the schema's unique index is currently commented out)
+  const existing = await StudentProfile.findOne({ user: targetUser._id });
+  if (existing) {
+    throw new AppErrorHelper("This user already has a Student profile", 409);
   }
 
   const { parents, grade, notes } = profileData;
 
-  const user = await User.findById(userId);
-  if (!user || !user.isActive) {
-    throw new AppErrorHelper("User not found ! ", 404);
-  }
-  if(user.role !== "student"){
-    throw new AppErrorHelper("This user can't have a Student profile ", 404);
-  }
-
   const studentProfile = await StudentProfile.create({
-    user: user._id,
+    user: targetUser._id,
     parents: parents || [],
     grade: grade || "",
     notes: notes || "",
@@ -62,21 +83,60 @@ const createStudentProfileService = async (userId, profileData) => {
   return studentProfile;
 };
 
-const updateStudentProfileService = async (profileId, updateData) => {
+const updateStudentProfileService = async (profileId, updateData, currentUser) => {
   if (!profileId || !updateData) {
-    throw new AppErrorHelper("Profile ID and update data are required ! ", 400);
+    throw new AppErrorHelper("Profile ID and update data are required!", 400);
   }
-  const options = {
+  if (!currentUser) {
+    throw new AppErrorHelper("You are not logged in!", 401);
+  }
+
+  const profile = await StudentProfile.findById(profileId);
+  if (!profile) {
+    throw new AppErrorHelper("Student profile not found!", 404);
+  }
+
+  // Authorization — prevent IDOR on the target profile.
+  // Use 404 for mismatches so attackers can't enumerate which profile IDs exist.
+  if (currentUser.role === "student") {
+    const profileUserId = (profile.user?._id || profile.user)?.toString();
+    if (profileUserId !== currentUser._id.toString()) {
+      throw new AppErrorHelper("Student profile not found!", 404);
+    }
+  } else if (currentUser.role === "parent") {
+    const isParent = (profile.parents || []).some((p) => {
+      const pid = (p?._id || p)?.toString();
+      return pid === currentUser._id.toString();
+    });
+    if (!isParent) {
+      throw new AppErrorHelper("Student profile not found!", 404);
+    }
+  }
+  // admin: unrestricted
+
+  // Whitelist writable fields. Only admin can modify the parents array;
+  // student / parent can update grade and notes only.
+  const safeUpdate = {};
+  if (updateData.grade !== undefined) safeUpdate.grade = updateData.grade;
+  if (updateData.notes !== undefined) safeUpdate.notes = updateData.notes;
+  if (currentUser.role === "admin" && updateData.parents !== undefined) {
+    safeUpdate.parents = updateData.parents;
+  }
+
+  if (Object.keys(safeUpdate).length === 0) {
+    throw new AppErrorHelper("No updatable fields provided!", 400);
+  }
+
+  const updated = await StudentProfile.findByIdAndUpdate(profileId, safeUpdate, {
     new: true,
     runValidators: true,
-  };
-  const updatedStudentProfile = await StudentProfile.findByIdAndUpdate(profileId, updateData, options);
+  });
 
-  if (!updatedStudentProfile) {
-    throw new AppErrorHelper("Student profile not found ! ", 404);
+  if (!updated) {
+    throw new AppErrorHelper("Student profile not found!", 404);
   }
 
-  return updatedStudentProfile;
+  return updated;
 };
 
 const getStudentProfileService = async (profileId, currentUser = null) => {

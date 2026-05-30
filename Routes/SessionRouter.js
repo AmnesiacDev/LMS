@@ -14,6 +14,8 @@ import {
   softDeleteSessionController,
   getCalendarController,
   getParentStudentSessionsController,
+  generateSessionAiSummaryController,
+  getSessionAiSummaryController,
 } from "../Controllers/SessionController.js";
 
 const router = express.Router();
@@ -27,6 +29,14 @@ router.get("/me/", restrictedToController("student", "parent", "instructor"), ge
 
 // Parent: see upcoming sessions for a specific child
 router.get("/parent/:studentProfileId", restrictedToController("parent"), getParentStudentSessionsController);
+
+// Read-only: view a session's AI summary. Students/parents see only their own
+// (ownership enforced in the service); instructors their own; admins any.
+router.get(
+  "/:id/ai-summary",
+  restrictedToController("student", "parent", "instructor", "admin"),
+  getSessionAiSummaryController,
+);
 
 router.use(restrictedToController("admin", "instructor"));
 
@@ -42,5 +52,8 @@ router.post("/", CreateSessionController);
 
 router.route("/:id").patch(UpdateSessionByIdController).delete(deleteSessionByIdController);
 router.patch("/:id/soft-delete", softDeleteSessionController);
+
+// Generate (or regenerate) an AI summary for a session (instructor/admin only)
+router.post("/:id/ai-summary", generateSessionAiSummaryController);
 
 export default router;

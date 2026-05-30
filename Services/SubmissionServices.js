@@ -77,12 +77,17 @@ const createSubmissionService = async (data, userData) => {
     throw new AppErrorHelper("Submission already exists!", 400);
   }
 
+  // A student submitting with links is actually completing the task — mark it
+  // Completed so the pre-save hook sets SubmissionDate and runs late-detection.
+  // With no links it's just a placeholder submission, so leave it Pending.
+  const hasLinks = Array.isArray(Task_links) && Task_links.length > 0;
+
   const submission = await Submission.create({
     task: taskId,
     studentProfileId: resolvedStudentProfileId,
     Task_links: Task_links || [],
     note,
-    status: "Pending",
+    status: hasLinks ? "Completed" : "Pending",
   });
 
   // Auto-complete the task when a submission is created
@@ -419,6 +424,13 @@ const uploadSubmissionFilesService = async (submissionId, files, userData) => {
   );
 
   submission.fileAttachments.push(...uploaded);
+
+  // A files-only submission is created as "Pending" (no links at creation time).
+  // Now that files are attached, it counts as actually submitted.
+  if (submission.status === "Pending") {
+    submission.status = "Completed";
+  }
+
   await submission.save({ validateBeforeSave: false });
 
   return submission;

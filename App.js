@@ -36,6 +36,10 @@ import scheduleRouter from "./Routes/ScheduleRouter.js";
 
 const app = express();
 
+// ApiFeatures expects bracket filters like date[gte] to arrive as nested
+// objects, e.g. { date: { gte: ... } }.
+app.set("query parser", "extended");
+
 // Behind a PaaS/reverse proxy (Render, Fly, Heroku, Nginx), trust the first
 // X-Forwarded-* hop so req.ip and express-rate-limit key on the real client IP.
 app.set("trust proxy", Number(process.env.TRUST_PROXY ?? 1));

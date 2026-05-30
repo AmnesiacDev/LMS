@@ -16,6 +16,7 @@ import {
   getCalendarSessionsService,
   getParentStudentSessionsService,
 } from "../Services/sessionService.js";
+import { generateSessionSummaryService, getSessionAiSummaryService } from "../Services/aiSummaryService.js";
 
 const CreateSessionController = CatchAsync(async (req, res, next) => {
   if (!req.body) {
@@ -186,6 +187,26 @@ const getParentStudentSessionsController = CatchAsync(async (req, res) => {
   res.status(200).json({ status: "success", results: docs.length, data: { sessions: docs } });
 });
 
+const generateSessionAiSummaryController = CatchAsync(async (req, res) => {
+  const aiSummary = await generateSessionSummaryService(req.params.id, req.user);
+  res.status(200).json({
+    status: "success",
+    data: {
+      aiSummary,
+    },
+  });
+});
+
+const getSessionAiSummaryController = CatchAsync(async (req, res) => {
+  const aiSummary = await getSessionAiSummaryService(req.params.id, req.user);
+  res.status(200).json({
+    status: "success",
+    data: {
+      aiSummary,
+    },
+  });
+});
+
 export {
   deleteSessionByIdController,
   UpdateSessionByIdController,
@@ -200,4 +221,6 @@ export {
   softDeleteSessionController,
   getCalendarController,
   getParentStudentSessionsController,
+  generateSessionAiSummaryController,
+  getSessionAiSummaryController,
 };

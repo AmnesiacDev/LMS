@@ -70,7 +70,6 @@ const createSessionReviewService = async (data, currentUser = null) => {
     throw new AppErrorHelper("Cannot review a session that student did not attend", 400);
   }
 
-  // Friendly duplicate-key handling (unique index on { session, studentProfileId })
   const existing = await SessionReview.findOne({ session: resolvedSessionId, studentProfileId: resolvedStudentProfileId });
   if (existing) {
     throw new AppErrorHelper("A review already exists for this session and student. Edit the existing review instead.", 409);

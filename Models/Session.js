@@ -52,6 +52,13 @@ const sessionSchema = new mongoose.Schema(
     summary: {
       type: String,
     },
+    // AI-generated, parent-friendly summary (see Services/aiSummaryService.js).
+    // Kept separate from the manual `summary` above so both can coexist.
+    aiSummary: {
+      text: { type: String },
+      model: { type: String },
+      generatedAt: { type: Date },
+    },
     status: {
       type: String,
       enum: ["pending", "completed", "canceled", "student canceled"],

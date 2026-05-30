@@ -44,7 +44,7 @@ const getAllStudentProfileController = CatchAsync(async (req, res, next) => {
 });
 
 const updateStudentProfileController = CatchAsync(async (req, res, next) => {
-  const StudentProfile = await updateStudentProfileService(req.params.id, req.body);
+  const StudentProfile = await updateStudentProfileService(req.params.id, req.body, req.user);
 
   res.status(200).json({
     status: "success",
@@ -53,7 +53,7 @@ const updateStudentProfileController = CatchAsync(async (req, res, next) => {
 });
 
 const createStudentProfileController = CatchAsync(async (req, res, next) => {
-  const StudentProfile = await createStudentProfileService(req.params.id, req.body);
+  const StudentProfile = await createStudentProfileService(req.params.id, req.body, req.user);
 
   res.status(201).json({
     status: "success",
