@@ -1,19 +1,30 @@
 import crypto from "crypto";
+import ms from "ms";
 import User from "../Models/user.js";
 import Token from "../Models/Token.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import { ComparePasswordHelper, hashPasswordHelper } from "../Utilities/HashHelper.js";
-import { generateToken, verifyRefreshToken, verifyAccessToken } from "../Utilities/JwtHelper.js";
+import { generateToken, verifyRefreshToken, verifyAccessToken, signImpersonationToken } from "../Utilities/JwtHelper.js";
 import { sendPasswordResetEmail, sendVerificationEmail } from "../Utilities/EmailHelper.js";
 import auditLog from "../Utilities/AuditLogger.js";
 import { randomUUID } from "crypto";
+
+// Parse JWT_REFRESH_EXPIRES_IN with `ms` so the DB token's expiresAt matches
+// what jsonwebtoken bakes into the JWT exp claim. parseInt() silently treated
+// "2h" as 2 days, drifting the two values apart.
+const refreshExpiryMs = ms(process.env.JWT_REFRESH_EXPIRES_IN || "7d");
+if (typeof refreshExpiryMs !== "number" || refreshExpiryMs <= 0) {
+  throw new Error(
+    `Invalid JWT_REFRESH_EXPIRES_IN: "${process.env.JWT_REFRESH_EXPIRES_IN}". Use an ms-format string like "7d", "2h", "30m".`
+  );
+}
 
 async function SendTokenService(user) {
   const tokenId = randomUUID();
   const { accessToken, refreshToken } = generateToken(user, tokenId);
 
   const tokenHash = await hashPasswordHelper(refreshToken);
-  const expiresAt = new Date(Date.now() + parseInt(process.env.JWT_REFRESH_EXPIRES_IN || "9") * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + refreshExpiryMs);
   await Token.create({
     userId: user._id,
     tokenHash: tokenHash,
@@ -125,6 +136,12 @@ const ProtectionService = async function (req) {
     throw new AppErrorHelper("User not found ", 404);
   }
 
+  // Surface impersonation context so audit/RBAC code can react to it.
+  if (verifiedToken.impersonator) {
+    user.impersonator = verifiedToken.impersonator;
+    user.isImpersonating = true;
+  }
+
   return user;
 };
 
@@ -204,8 +221,9 @@ const ImpersonateService = async (adminUser, targetUserId, ip) => {
   const target = await User.findById(targetUserId).select("_id role FullName Email isActive");
   if (!target) throw new AppErrorHelper("User not found", 404);
 
-  // Issue a short-lived access token that carries an impersonation marker
-  const { accessToken } = generateToken({ _id: target._id, role: target.role }, null);
+  // Issue a short-lived (15m) access token that carries an `impersonator` claim
+  // so downstream middleware/audit can tell it apart from a real session.
+  const accessToken = signImpersonationToken(target, adminUser._id);
 
   await auditLog({
     actor: adminUser._id,

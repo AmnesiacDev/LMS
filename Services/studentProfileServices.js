@@ -235,4 +235,4 @@ const recalculateAttendanceStreakService = async (studentProfileId) => {
   return { attendanceStreak: profile.attendanceStreak, longestStreak: profile.longestStreak };
 };
 
-export { getStudentProfileService, updateStudentProfileService, createStudentProfileService, getMyStudentProfileService, getMyStudentProfileServiceById, getAllStudentProfilesService, recalculateAttendanceStreakService };
+export { getStudentProfileService, updateStudentProfileService, createStudentProfileService, getMyStudentProfileService, getMyStudentProfileServiceById, getAllStudentProfilesService, recalculateAttendanceStreakService, canAccessStudentProfile };

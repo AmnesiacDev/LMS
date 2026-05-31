@@ -1,5 +1,6 @@
 import express from "express";
 import multer from "multer";
+import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import { protectionController, restrictedToController } from "../Controllers/AuthController.js";
 
 import {
@@ -28,7 +29,8 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB per file
   fileFilter: (_req, file, cb) => {
     const allowed = /image\/(jpeg|png|gif|webp)|application\/pdf|video\//;
-    cb(null, allowed.test(file.mimetype));
+    if (allowed.test(file.mimetype)) return cb(null, true);
+    cb(new AppErrorHelper(`Unsupported file type: ${file.mimetype}`, 400));
   },
 });
 
@@ -40,10 +42,11 @@ router.use(protectionController);
 // ─── Authenticated (any logged-in user) ──────────────────────────────────────
 
 
-router.get("/", getAllSubmissionsController);
+// Bulk submission reads expose data across students — restrict to staff.
+// Students/parents have /me, /me/:id, /me/stats for their own data.
+router.get("/", restrictedToController("admin", "instructor"), getAllSubmissionsController);
 
-
-router.get("/task/:taskId", getSubmissionsByTaskIdController);
+router.get("/task/:taskId", restrictedToController("admin", "instructor"), getSubmissionsByTaskIdController);
 
 router.get("/me", getAllMySubmissionsController);
 router.get("/me/stats", getMySubmissionStatsController);

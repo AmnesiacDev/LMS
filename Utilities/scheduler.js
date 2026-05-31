@@ -15,6 +15,16 @@ import Notification from "../Models/Notification.js";
 import { materializeSeriesService } from "../Services/scheduleSeriesService.js";
 
 const startScheduler = () => {
+  // Under PM2 cluster mode every worker would otherwise register every cron job,
+  // sending duplicate emails/notifications and racing on the reminder writes.
+  // Only worker 0 runs the scheduler. When NODE_APP_INSTANCE is unset (plain
+  // `node server.js` or a single-instance deploy) we run as normal.
+  const instanceId = process.env.NODE_APP_INSTANCE;
+  if (instanceId !== undefined && instanceId !== "0") {
+    console.log(`[Scheduler] Skipping cron registration on worker ${instanceId} (only worker 0 runs scheduled jobs)`);
+    return;
+  }
+
   // ─── Auto-complete sessions that ended 2+ hours ago (every hour) ─────────
   cron.schedule("0 * * * *", async () => {
     try {

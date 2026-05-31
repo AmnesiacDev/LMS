@@ -6,8 +6,23 @@ import ApiFeatures from "../Utilities/ApiFeatures.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import mongoose from "mongoose";
 import { uploadToCloudinary, deleteFromCloudinary } from "../Configs/cloudinary.js";
+import { canAccessStudentProfile } from "./studentProfileServices.js";
 
 const VALID_STATUSES = ["Pending", "Completed", "Reviewed", "Resubmitted", "Late submission"];
+
+// Ownership gate for routes that look up data by studentProfileId.
+// Loads the profile once and runs the same access rules getStudentProfileService uses.
+// Returns 404 (not 403) on mismatch to prevent profile-ID enumeration.
+const assertCanAccessStudent = async (currentUser, studentProfileId) => {
+  if (!mongoose.Types.ObjectId.isValid(studentProfileId)) {
+    throw new AppErrorHelper("Invalid student profile id!", 400);
+  }
+  const profile = await StudentProfile.findById(studentProfileId);
+  if (!profile) throw new AppErrorHelper("Student profile not found!", 404);
+  if (currentUser && !(await canAccessStudentProfile(currentUser, profile))) {
+    throw new AppErrorHelper("Student profile not found!", 404);
+  }
+};
 
 const getDocumentId = (value) => {
   if (!value) return null;
@@ -122,11 +137,15 @@ const getAllSubmissionsService = async (queryString = {}, user = null) => {
 
 
 
-const getSubmissionByIdService = async (submissionId) => {
+const getSubmissionByIdService = async (submissionId, currentUser = null) => {
   const submission = await Submission.findById(submissionId);
 
   if (!submission) {
     throw new AppErrorHelper("Submission not found!", 404);
+  }
+
+  if (currentUser) {
+    await assertCanAccessStudent(currentUser, submission.studentProfileId);
   }
 
   return submission;
@@ -146,10 +165,8 @@ const getSubmissionsByTaskIdService = async (taskId, queryString = {}) => {
 
 
 
-const getSubmissionsByStudentIdService = async (studentProfileId, queryString = {}) => {
-  if (!mongoose.Types.ObjectId.isValid(studentProfileId)) {
-    throw new AppErrorHelper("Invalid student profile id!", 400);
-  }
+const getSubmissionsByStudentIdService = async (studentProfileId, queryString = {}, currentUser = null) => {
+  await assertCanAccessStudent(currentUser, studentProfileId);
 
   const features = new ApiFeatures(Submission.find({ studentProfileId }), queryString).filter().sort().fields().pagination();
 
@@ -249,10 +266,8 @@ const reviewSubmissionService = async (submissionId, reviewData) => {
   return await submission.save();
 };
 
-const getSubmissionStatsByStudentIdService = async (studentProfileId) => {
-  if (!mongoose.Types.ObjectId.isValid(studentProfileId)) {
-    throw new AppErrorHelper("Invalid student profile id!", 400);
-  }
+const getSubmissionStatsByStudentIdService = async (studentProfileId, currentUser = null) => {
+  await assertCanAccessStudent(currentUser, studentProfileId);
 
   const stats = await Submission.aggregate([
     { $match: { studentProfileId: new mongoose.Types.ObjectId(studentProfileId) } },
@@ -364,7 +379,9 @@ const getMySubmissionStatsService = async (userData) => {
   return stats[0] || {};
 };
 
-const getTasksDueDateBucketsService = async (studentProfileId) => {
+const getTasksDueDateBucketsService = async (studentProfileId, currentUser = null) => {
+  await assertCanAccessStudent(currentUser, studentProfileId);
+
   const now = new Date();
   const next3Days = new Date();
   next3Days.setDate(now.getDate() + 3);

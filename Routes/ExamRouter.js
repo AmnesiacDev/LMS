@@ -18,7 +18,9 @@ router.use(protectionController);
 router.get("/my-exams", restrictedToController("student", "parent"), getMyExamsController);
 router.get("/my-exams/:id", restrictedToController("student", "parent"), getMyExamByIdController);
 
-router.use(restrictedToController("admin", "instructor", "parent"));
+// Parents read their children's exams via /my-exams. Writes and bulk reads
+// below are staff-only — parent must not be able to create/update/delete exams.
+router.use(restrictedToController("admin", "instructor"));
 
 router.get("/", getAllExamsController);
 router.post("/", createExamController);

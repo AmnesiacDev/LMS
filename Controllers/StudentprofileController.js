@@ -1,7 +1,7 @@
 import PDFDocument from "pdfkit";
 import CatchAsync from "../Utilities/CatchAsync.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
-import { getStudentProfileService, updateStudentProfileService, createStudentProfileService, getMyStudentProfileService, getMyStudentProfileServiceById, getAllStudentProfilesService } from "../Services/studentProfileServices.js";
+import { getStudentProfileService, updateStudentProfileService, createStudentProfileService, getMyStudentProfileService, getMyStudentProfileServiceById, getAllStudentProfilesService, canAccessStudentProfile } from "../Services/studentProfileServices.js";
 import StudentProfile from "../Models/studentProfile.js";
 import Session from "../Models/Session.js";
 import Exam from "../Models/exam.js";
@@ -73,8 +73,16 @@ const getStudentProfileController = CatchAsync(async (req, res, next) => {
 const getStudentTranscriptController = CatchAsync(async (req, res, next) => {
   const profileId = req.params.id;
 
-  const [profile, sessions, exams, taskStats] = await Promise.all([
-    StudentProfile.findById(profileId).populate("user", "FullName Email UserName").lean(),
+  // Authorization first — load profile and verify the caller may see it.
+  // Return 404 (not 403) on mismatch so attackers can't enumerate profile IDs.
+  const profile = await StudentProfile.findById(profileId).populate("user", "FullName Email UserName").lean();
+  if (!profile) return next(new AppErrorHelper("Student profile not found!", 404));
+
+  if (!(await canAccessStudentProfile(req.user, profile))) {
+    return next(new AppErrorHelper("Student profile not found!", 404));
+  }
+
+  const [sessions, exams, taskStats] = await Promise.all([
     Session.find({ studentProfileId: profileId, deletedAt: null }).sort({ date: -1 }).limit(30).lean(),
     Exam.find({ studentProfileId: profileId }).sort({ date: -1 }).lean(),
     Task.aggregate([
@@ -87,8 +95,6 @@ const getStudentTranscriptController = CatchAsync(async (req, res, next) => {
       },
     ]),
   ]);
-
-  if (!profile) return next(new AppErrorHelper("Student profile not found!", 404));
 
   const doc = new PDFDocument({ margin: 50, size: "A4" });
 

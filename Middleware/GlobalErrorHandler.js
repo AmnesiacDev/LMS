@@ -25,6 +25,20 @@ const HandleJwtExpirationError = () => {
   return new AppErrorHelper("Token expired , Please login again", 401);
 };
 
+// Translate multer errors into user-facing 400s instead of generic 500s.
+const HandleMulterError = (err) => {
+  const codeToMessage = {
+    LIMIT_FILE_SIZE: "File too large. Maximum size is 10 MB.",
+    LIMIT_FILE_COUNT: "Too many files uploaded.",
+    LIMIT_UNEXPECTED_FILE: `Unexpected file field "${err.field}". Use the "files" field for uploads.`,
+    LIMIT_PART_COUNT: "Too many parts in the upload.",
+    LIMIT_FIELD_KEY: "Field name too long.",
+    LIMIT_FIELD_VALUE: "Field value too long.",
+    LIMIT_FIELD_COUNT: "Too many non-file fields.",
+  };
+  return new AppErrorHelper(codeToMessage[err.code] || `Upload error: ${err.message}`, 400);
+};
+
 const DevelopmentErrorHandler = (err, req, res) => {
   logger.info(err);
   res.status(Number(err.statusCode) || 500).json({
@@ -58,6 +72,7 @@ const normalize = (err) => {
   if (normalized.name === "ValidationError") normalized = HandleValidationError(normalized);
   if (normalized.name === "JsonWebTokenError") normalized = HandleJwtError();
   if (normalized.name === "TokenExpiredError") normalized = HandleJwtExpirationError();
+  if (normalized.name === "MulterError") normalized = HandleMulterError(normalized);
   return normalized;
 };
 

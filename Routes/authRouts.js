@@ -1,6 +1,15 @@
 import express from "express";
 
 import { signUpController, loginController, RefreshController, logoutController, protectionController, restrictedToController, forgotPasswordController, resetPasswordController, verifyEmailController, impersonateController, generateApiKeyController } from "../Controllers/AuthController.js";
+import { validate } from "../Middleware/validate.js";
+import {
+  signupSchema,
+  loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  tokenParamSchema,
+  userIdParamSchema,
+} from "../Validation/authValidation.js";
 
 const router = express.Router();
 
@@ -56,7 +65,7 @@ const router = express.Router();
  *       500:
  *         description: Internal server error
  */
-router.post("/signup", signUpController);
+router.post("/signup", validate(signupSchema), signUpController);
 
 /**
  * @swagger
@@ -99,7 +108,7 @@ router.post("/signup", signUpController);
  *       404:
  *         description: User not found
  */
-router.post("/login", loginController);
+router.post("/login", validate(loginSchema), loginController);
 
 /**
  * @swagger
@@ -116,9 +125,14 @@ router.post("/login", loginController);
  */
 router.post("/refresh", RefreshController);
 
-router.post("/forgot-password", forgotPasswordController);
-router.post("/reset-password/:token", resetPasswordController);
-router.get("/verify-email/:token", verifyEmailController);
+router.post("/forgot-password", validate(forgotPasswordSchema), forgotPasswordController);
+router.post(
+  "/reset-password/:token",
+  validate(tokenParamSchema, "params"),
+  validate(resetPasswordSchema),
+  resetPasswordController,
+);
+router.get("/verify-email/:token", validate(tokenParamSchema, "params"), verifyEmailController);
 
 router.use(protectionController);
 
@@ -141,6 +155,11 @@ router.get("/logout", logoutController);
 router.post("/api-key", restrictedToController("parent"), generateApiKeyController);
 
 // Admin only: impersonate any user for debugging
-router.post("/impersonate/:userId", restrictedToController("admin"), impersonateController);
+router.post(
+  "/impersonate/:userId",
+  restrictedToController("admin"),
+  validate(userIdParamSchema, "params"),
+  impersonateController,
+);
 
 export default router;

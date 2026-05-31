@@ -134,11 +134,12 @@ app.use((req, _res, next) => {
   next();
 });
 
-// In production, write to stdout so the PaaS host (Render/Fly/etc.) aggregates logs.
-// Local file logs vanish on every deploy on free hosts, so stdout is the right target.
-if (isProduction) {
-  app.use(morgan("combined"));
-} else {
+// Default everything to stdout so the PaaS host (Render/Fly/etc.) aggregates logs.
+// Disk logs vanish on every deploy on ephemeral hosts, so only touch the filesystem
+// when explicitly opted in via LOG_TO_DISK=true (typically a long-lived VPS / PM2 box).
+const logToDisk = process.env.LOG_TO_DISK === "true";
+
+if (logToDisk) {
   if (!fs.existsSync("logs")) fs.mkdirSync("logs", { recursive: true });
 
   const accessLogStream = fs.createWriteStream(path.join("logs", "access.log"), { flags: "a" });
@@ -147,8 +148,10 @@ if (isProduction) {
   app.use(morgan("combined", { stream: accessLogStream }));
   app.use("/api/v1/auth/login",  morgan("combined", { stream: authLogStream }));
   app.use("/api/v1/auth/signup", morgan("combined", { stream: authLogStream }));
-  app.use(morgan("dev"));
 }
+
+// Always log to stdout (combined in prod, dev-friendly format locally).
+app.use(morgan(isProduction ? "combined" : "dev"));
 
 // ─── 6. Body Parsers ───────────────────────────────────────────────────────────
 app.use(express.json({
@@ -197,16 +200,8 @@ app.use((req, _res, next) => {
 // ─── 8. Compression ─────────────────────────────────────────────────────────────
 app.use(compression());
 
-// ─── 9. Static Files (with security) ───────────────────────────────────────────
-// WARNING: The local "uploads" folder is wiped on every deploy on free PaaS hosts
-// (Render, Fly, Koyeb). Migrate file storage to Cloudinary or S3 before going live.
-app.use("/uploads", express.static("uploads", {
-  maxAge: "1h",
-  etag: true,
-  immutable: false,
-}));
-
-// ─── 10. Swagger Documentation ────────────────────────────────────────────────
+// ─── 9. Swagger Documentation ────────────────────────────────────────────────
+// (File uploads go straight to Cloudinary via memoryStorage; no local /uploads mount.)
 app.use(
   "/api-docs",
   swaggerUi.serve,

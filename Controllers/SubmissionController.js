@@ -54,7 +54,7 @@ const getAllSubmissionsController = CatchAsync(async (req, res, next) => {
  * GET /submissions/:id
  */
 const getSubmissionByIdController = CatchAsync(async (req, res, next) => {
-  const submission = await getSubmissionByIdService(req.params.id);
+  const submission = await getSubmissionByIdService(req.params.id, req.user);
 
   res.status(200).json({
     status: "success",
@@ -81,7 +81,7 @@ const getSubmissionsByTaskIdController = CatchAsync(async (req, res, next) => {
  * GET /submissions/student/:studentId
  */
 const getSubmissionsByStudentIdController = CatchAsync(async (req, res, next) => {
-  const submissions = await getSubmissionsByStudentIdService(req.params.studentId, req.query);
+  const submissions = await getSubmissionsByStudentIdService(req.params.studentId, req.query, req.user);
 
   res.status(200).json({
     status: "success",
@@ -134,7 +134,7 @@ const getMySubmissionStatsController = CatchAsync(async (req, res, next) => {
  * GET /submissions/student/:studentId/stats
  */
 const getSubmissionStatsByStudentIdController = CatchAsync(async (req, res, next) => {
-  const stats = await getSubmissionStatsByStudentIdService(req.params.studentId);
+  const stats = await getSubmissionStatsByStudentIdService(req.params.studentId, req.user);
 
   res.status(200).json({
     status: "success",
@@ -147,7 +147,7 @@ const getSubmissionStatsByStudentIdController = CatchAsync(async (req, res, next
  * GET /submissions/student/:studentId/due-buckets
  */
 const getTasksDueDateBucketsController = CatchAsync(async (req, res, next) => {
-  const buckets = await getTasksDueDateBucketsService(req.params.studentId);
+  const buckets = await getTasksDueDateBucketsService(req.params.studentId, req.user);
 
   res.status(200).json({
     status: "success",
