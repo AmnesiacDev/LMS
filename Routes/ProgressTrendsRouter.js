@@ -2,6 +2,7 @@ import express from "express";
 import { protectionController, restrictedToController } from "../Controllers/AuthController.js";
 import {
   getReviewTrendsController,
+  getReviewRadarController,
   getTaskTrendsController,
   getSubmissionTrendsController,
   getExamTrendsController,
@@ -20,6 +21,7 @@ router.use(protectionController);
 // ─── "My" routes (student sees own, parent sees all children) ─────────────────
 router.get("/me", restrictedToController("student", "parent"), getFullProgressController);
 router.get("/me/reviews", restrictedToController("student", "parent"), getReviewTrendsController);
+router.get("/me/reviews/radar", restrictedToController("student", "parent"), getReviewRadarController);
 router.get("/me/tasks", restrictedToController("student", "parent"), getTaskTrendsController);
 router.get("/me/submissions", restrictedToController("student", "parent"), getSubmissionTrendsController);
 router.get("/me/exams", restrictedToController("student", "parent"), getExamTrendsController);
@@ -31,6 +33,7 @@ router.get("/compare-children", restrictedToController("parent"), getChildrenCom
 // ─── Per-profile routes (admin, instructor, parent with access check) ─────────
 router.get("/child/:profileId", getFullProgressController);
 router.get("/child/:profileId/reviews", getReviewTrendsController);
+router.get("/child/:profileId/reviews/radar", getReviewRadarController);
 router.get("/child/:profileId/tasks", getTaskTrendsController);
 router.get("/child/:profileId/submissions", getSubmissionTrendsController);
 router.get("/child/:profileId/exams", getExamTrendsController);

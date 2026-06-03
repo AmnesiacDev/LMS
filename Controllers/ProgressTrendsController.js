@@ -1,5 +1,6 @@
 import {
   getReviewTrendsService,
+  getReviewRadarService,
   getTaskTrendsService,
   getSubmissionTrendsService,
   getExamTrendsService,
@@ -30,6 +31,22 @@ const getReviewTrendsController = async (req, res, next) => {
     res.status(200).json({
       status: "success",
       results: data.length,
+      data,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─── Review Radar (overall averages for a radar chart) ────────────────────────
+
+const getReviewRadarController = async (req, res, next) => {
+  try {
+    const { profileId, from, to } = extractParams(req);
+    const data = await getReviewRadarService(req.user, { profileId, from, to });
+
+    res.status(200).json({
+      status: "success",
       data,
     });
   } catch (error) {
@@ -163,6 +180,7 @@ const getParentDashboardController = async (req, res, next) => {
 
 export {
   getReviewTrendsController,
+  getReviewRadarController,
   getTaskTrendsController,
   getSubmissionTrendsController,
   getExamTrendsController,

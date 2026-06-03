@@ -135,6 +135,61 @@ const getReviewTrendsService = async (user, { profileId, period = "monthly", fro
   return trends;
 };
 
+// ─── 1b. Session Review Radar (overall averages, no time axis) ────────────────
+
+/**
+ * Collapse all of a student's session reviews into one average per metric.
+ * Shaped for a radar/spider chart (Behavior, understanding, participation, coding).
+ * Respects the same role-based access and optional date range as the trends.
+ */
+const getReviewRadarService = async (user, { profileId, from, to } = {}) => {
+  const profileIds = await resolveProfileIds(user, profileId);
+  if (!profileIds.length) {
+    return { axes: [], reviewCount: 0 };
+  }
+
+  const dateMatch = buildDateMatch("createdAt", from, to);
+
+  const result = await SessionReview.aggregate([
+    {
+      $match: {
+        studentProfileId: { $in: profileIds },
+        ...dateMatch,
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        avgBehavior: { $avg: "$Behavior" },
+        avgUnderstanding: { $avg: "$underStanding" },
+        avgParticipation: { $avg: "$participation" },
+        avgCoding: { $avg: "$coding" },
+        avgOverall: { $avg: "$overAllRating" },
+        reviewCount: { $sum: 1 },
+      },
+    },
+  ]);
+
+  if (!result.length) {
+    return { axes: [], reviewCount: 0 };
+  }
+
+  const r = result[0];
+  const round = (n) => (n == null ? 0 : Math.round(n * 100) / 100);
+
+  // `max: 5` mirrors the SessionReview schema bounds so the frontend can scale axes.
+  return {
+    reviewCount: r.reviewCount,
+    avgOverall: round(r.avgOverall),
+    axes: [
+      { metric: "Behavior", value: round(r.avgBehavior), max: 5 },
+      { metric: "Understanding", value: round(r.avgUnderstanding), max: 5 },
+      { metric: "Participation", value: round(r.avgParticipation), max: 5 },
+      { metric: "Coding", value: round(r.avgCoding), max: 5 },
+    ],
+  };
+};
+
 // ─── 2. Task Completion Trends ────────────────────────────────────────────────
 
 const getTaskTrendsService = async (user, { profileId, period = "monthly", from, to } = {}) => {
@@ -650,6 +705,7 @@ const getParentDashboardService = async (user, profileId) => {
 
 export {
   getReviewTrendsService,
+  getReviewRadarService,
   getTaskTrendsService,
   getSubmissionTrendsService,
   getExamTrendsService,
