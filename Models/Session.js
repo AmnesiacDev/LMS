@@ -46,6 +46,9 @@ const sessionSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    meetingLink: {
+      type: String,
+    },
     notes: {
       type: String,
     },

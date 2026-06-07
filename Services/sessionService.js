@@ -7,7 +7,7 @@ import ApiFeatures from "../Utilities/ApiFeatures.js";
 import { recalculateAttendanceStreakService } from "./studentProfileServices.js";
 
 const createSessionService = async (data) => {
-  const { title, description, recapVideoLinks, attachmentsLinks, studentProfileId, instructorId, date, StudentAttended } = data;
+  const { title, description, recapVideoLinks, attachmentsLinks, studentProfileId, instructorId, date, StudentAttended, meetingLink } = data;
 
   const studentProfile = await StudentProfile.findById(studentProfileId);
   if (!studentProfile) {
@@ -37,6 +37,7 @@ const createSessionService = async (data) => {
     instructorId: instructor._id,
     date: date,
     StudentAttended: StudentAttended ?? true,
+    meetingLink: meetingLink,
   });
 
   recalculateAttendanceStreakService(session.studentProfileId).catch(() => {});
