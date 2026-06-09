@@ -33,6 +33,9 @@ import NotificationRouter from "./Routes/NotificationRouter.js";
 import AnnouncementRouter from "./Routes/AnnouncementRouter.js";
 import AuditLogRouter from "./Routes/AuditLogRouter.js";
 import scheduleRouter from "./Routes/ScheduleRouter.js";
+import GamificationRouter from "./Routes/GamificationRouter.js";
+import ChallengeRouter from "./Routes/ChallengeRouter.js";
+import LeaderboardRouter from "./Routes/LeaderboardRouter.js";
 
 const app = express();
 
@@ -270,6 +273,9 @@ app.use("/api/v1/notifications", NotificationRouter);
 app.use("/api/v1/announcements", AnnouncementRouter);
 app.use("/api/v1/audit-logs", AuditLogRouter);
 app.use("/api/v1/schedule", scheduleRouter);
+app.use("/api/v1/gamification", GamificationRouter);
+app.use("/api/v1/challenges", ChallengeRouter);
+app.use("/api/v1/leaderboard", LeaderboardRouter);
 
 // ─── 14. 404 Handler ────────────────────────────────────────────────────────────
 app.all(/.*/, (req, res, next) => {

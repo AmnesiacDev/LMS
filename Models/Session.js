@@ -136,6 +136,22 @@ sessionSchema.post("save", async function () {
   }
 });
 
+// ─── Gamification XP Hook ─────────────────────────────────────────────────────
+// Awards attendance XP when a session is completed and the student attended.
+sessionSchema.post("save", async function () {
+  try {
+    if (this.status === "completed" && this.StudentAttended === true) {
+      const { awardXP } = await import("../Services/GamificationService.js");
+      const profileId = this.studentProfileId?._id || this.studentProfileId;
+      if (profileId) {
+        await awardXP(profileId, 15, "session_attended", this._id);
+      }
+    }
+  } catch (err) {
+    console.error("[Session hook] Gamification XP award failed:", err.message);
+  }
+});
+
 const Session = mongoose.model("Session", sessionSchema);
 
 export default Session;

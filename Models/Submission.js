@@ -144,6 +144,36 @@ SubmissionSchema.methods.markComplete = async function () {
   return this.save();
 };
 
+// ─── Gamification XP Hook ─────────────────────────────────────────────────────
+// Awards XP when a submission status changes to Completed / Late or gets scored.
+SubmissionSchema.post("save", async function () {
+  try {
+    // Lazy-import to avoid circular dependencies
+    const { awardXP } = await import("../Services/GamificationService.js");
+    const profileId = this.studentProfileId?._id || this.studentProfileId;
+
+    if (!profileId) return;
+
+    // Award XP on task completion
+    if (this.status === "Completed") {
+      await awardXP(profileId, 20, "task_submit", this._id);
+    } else if (this.status === "Late submission") {
+      await awardXP(profileId, 5, "task_submit_late", this._id);
+    }
+
+    // Award bonus XP for high review scores
+    if (this.review && this.review.score != null) {
+      if (this.review.score === 10) {
+        await awardXP(profileId, 50, "review_perfect", this._id);
+      } else if (this.review.score === 9) {
+        await awardXP(profileId, 30, "review_excellent", this._id);
+      }
+    }
+  } catch (err) {
+    console.error("[Submission hook] Gamification XP award failed:", err.message);
+  }
+});
+
 const Submission = mongoose.model("Submission", SubmissionSchema);
 
 export default Submission;

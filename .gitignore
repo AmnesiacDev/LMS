@@ -37,9 +37,11 @@ Thumbs.db
 
 # Markdown docs
 *.md
+/
 
 # Scripts
 /Scripts
+/scripts
 
 # AI agent folders
 .kilo
@@ -62,3 +64,9 @@ Thumbs.db
 
 # Vector DB
 ruvector.db
+
+# Tests
+/tests
+/test
+*.test.js
+*.spec.js
