@@ -35,15 +35,30 @@ Thumbs.db
 #files 
 /additional-features
 
-#kilo AI
-.kilo
-#Scripts
+# Markdown docs
+*.md
 
+# Scripts
 /Scripts
-.PRESENTATION.md
+
+# AI agent folders
+.kilo
 /.kilo
+.claude/
+.kiro/
+.cursor/
+.windsurf/
+.copilot/
+.continue/
+.cody/
+.aider/
+
+# IDE
 /.vscode
 .ecosystem.config.js
-#seed
 
+# Seed
 /seed-data.js
+
+# Vector DB
+ruvector.db

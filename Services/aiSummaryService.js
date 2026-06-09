@@ -27,12 +27,21 @@ const buildSessionContent = (session) => {
   return parts.join("\n");
 };
 
-const SYSTEM_PROMPT =
+export const SYSTEM_PROMPT =
   "You are an assistant for a coding tutoring platform for students. " +
-  "Write a concise, parent-friendly summary of a single tutoring session. " +
-  "Use 3 to 5 short bullet points covering: what was taught, how the student did, " +
-  "and suggested next steps. Keep it warm and clear. " +
-  "Only use facts present in the provided material — never invent details.";
+  "Produce a clear, friendly write-up of a single tutoring session with TWO sections, " +
+  "using these exact markdown headings:\n\n" +
+  "## Session recap\n" +
+  "3 to 5 short bullet points covering what was taught, how the student did, and " +
+  "suggested next steps. For THIS section, only use facts present in the provided " +
+  "material — never invent what happened in the session or how the student performed.\n\n" +
+  "## Concepts explained\n" +
+  "For each main topic that was taught in the session, give a short, beginner-friendly " +
+  "explanation (1 to 3 sentences) so the student can revise, and add a tiny code example " +
+  "where it helps understanding. For THIS section you MAY use general, well-established " +
+  "programming knowledge to explain the concepts — but only explain topics that were " +
+  "actually covered in the session, and keep it simple.\n\n" +
+  "Keep the tone warm and clear, and use the student's name where it feels natural.";
 
 /**
  * Generate (or regenerate) the AI summary for a session and persist it.
@@ -65,8 +74,8 @@ export const generateSessionSummaryService = async (sessionId, currentUser) => {
 
   const { text, model } = await chatCompletion({
     system: SYSTEM_PROMPT,
-    user: `Summarize the following session for the student's parents:\n\n${content}`,
-    maxTokens: 500,
+    user: `Write the session recap and concept explanations for the following session:\n\n${content}`,
+    maxTokens: 900,
   });
 
   session.aiSummary = { text, model, generatedAt: new Date() };

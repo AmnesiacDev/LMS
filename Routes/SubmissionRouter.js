@@ -28,8 +28,9 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB per file
   fileFilter: (_req, file, cb) => {
-    const allowed = /image\/(jpeg|png|gif|webp)|application\/pdf|video\//;
-    if (allowed.test(file.mimetype)) return cb(null, true);
+    const allowedMime = /image\/(jpeg|png|gif|webp)|application\/pdf|video\//;
+    const allowedExt = /\.(mblok|sb3)$/i;
+    if (allowedMime.test(file.mimetype) || allowedExt.test(file.originalname)) return cb(null, true);
     cb(new AppErrorHelper(`Unsupported file type: ${file.mimetype}`, 400));
   },
 });
