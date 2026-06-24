@@ -1,11 +1,26 @@
 import Gamification, { XP_PER_LEVEL } from "../Models/Gamification.js";
 import { StudentBadge } from "../Models/Badge.js";
 import { evaluateBadges } from "./BadgeEvaluator.js";
-import Notification from "../Models/Notification.js";
+import { createNotificationService } from "./NotificationService.js";
 import StudentProfile from "../Models/studentProfile.js";
 import { emitToUser } from "../Utilities/SocketManager.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
+
+// Human-friendly phrasing for XP reasons, used in notification messages.
+const XP_REASON_LABELS = {
+  task_submit: "submitting a task",
+  task_submit_late: "a late task submission",
+  review_perfect: "a perfect review score",
+  review_excellent: "an excellent review score",
+  session_attended: "attending a session",
+  streak_bonus: "a streak bonus",
+  challenge_solved: "solving a challenge",
+  puzzle_solved: "solving a puzzle",
+  exam_passed: "passing an exam",
+  badge_bonus: "a badge bonus",
+  lesson_completed: "completing a lesson",
+};
 
 // ─── Ensure Profile ──────────────────────────────────────────────────────────
 /**
@@ -59,41 +74,94 @@ export const awardXP = async (studentProfileId, amount, reason, sourceId = null)
 
   const leveledUp = gamification.level > previousLevel;
 
-  // Notify on level-up
-  if (leveledUp) {
+  // Resolve the student's user id + parents once for all notifications below.
+  // (auto-populated by StudentProfile's pre-find hook). Best-effort — a profile
+  // load failure must not break XP awarding.
+  let studentUserId = null;
+  let studentName = "Your child";
+  let parentIds = [];
+  try {
     const profile = await StudentProfile.findById(studentProfileId);
     if (profile?.user) {
-      const userId = profile.user._id?.toString?.() || profile.user.toString();
+      studentUserId = profile.user._id?.toString?.() || profile.user.toString();
+      studentName = profile.user.FullName || studentName;
+    }
+    parentIds = (profile?.parents || [])
+      .map((p) => p?._id?.toString?.() || p?.toString?.())
+      .filter(Boolean);
+  } catch (err) {
+    console.error("[Gamification] Failed to load profile for notifications:", err.message);
+  }
 
-      emitToUser(userId, "level:up", {
-        newLevel: gamification.level,
-        totalXP: gamification.xp,
-      });
+  // Notify on level-up (student + parents)
+  if (leveledUp && studentUserId) {
+    emitToUser(studentUserId, "level:up", {
+      newLevel: gamification.level,
+      totalXP: gamification.xp,
+    });
 
-      await Notification.create({
-        recipient: userId,
+    try {
+      await createNotificationService({
+        recipient: studentUserId,
         type: "level_up",
         title: `🎉 Level Up! You're now Level ${gamification.level}!`,
         message: `You've reached ${gamification.xp} XP. Keep going!`,
         link: "/gamification",
       });
+
+      await Promise.allSettled(
+        parentIds.map((parentId) =>
+          createNotificationService({
+            recipient: parentId,
+            type: "level_up",
+            title: `🎉 ${studentName} reached Level ${gamification.level}!`,
+            message: `${studentName} has reached ${gamification.xp} XP. Keep encouraging them!`,
+            link: "/gamification",
+          }),
+        ),
+      );
+    } catch (err) {
+      console.error("[Gamification] Level-up notification failed:", err.message);
     }
   }
 
   // Evaluate badges (may unlock new ones)
   const newlyUnlockedBadges = await evaluateBadges(studentProfileId);
 
-  // Emit XP earned event
-  const profile = await StudentProfile.findById(studentProfileId);
-  if (profile?.user) {
-    const userId = profile.user._id?.toString?.() || profile.user.toString();
-
-    emitToUser(userId, "xp:earned", {
+  // Emit XP earned event + notify student and parents
+  if (studentUserId) {
+    emitToUser(studentUserId, "xp:earned", {
       amount,
       reason,
       totalXP: gamification.xp,
       level: gamification.level,
     });
+
+    const reasonLabel = XP_REASON_LABELS[reason] || reason?.replace(/_/g, " ") || "your progress";
+
+    try {
+      await createNotificationService({
+        recipient: studentUserId,
+        type: "xp_earned",
+        title: `⭐ You earned ${amount} XP!`,
+        message: `You earned ${amount} XP for ${reasonLabel}. Total: ${gamification.xp} XP (Level ${gamification.level}).`,
+        link: "/gamification",
+      });
+
+      await Promise.allSettled(
+        parentIds.map((parentId) =>
+          createNotificationService({
+            recipient: parentId,
+            type: "xp_earned",
+            title: `⭐ ${studentName} earned ${amount} XP!`,
+            message: `${studentName} earned ${amount} XP for ${reasonLabel}. Total: ${gamification.xp} XP (Level ${gamification.level}).`,
+            link: "/gamification",
+          }),
+        ),
+      );
+    } catch (err) {
+      console.error("[Gamification] XP notification failed:", err.message);
+    }
   }
 
   return { gamification, leveledUp, newlyUnlockedBadges };

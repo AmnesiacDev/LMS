@@ -28,6 +28,7 @@ const notificationSchema = new mongoose.Schema(
         "badge_unlocked",
         "level_up",
         "challenge_graded",
+        "new_submission",
       ],
       required: true,
     },

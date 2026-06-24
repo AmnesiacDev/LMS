@@ -4,15 +4,21 @@ import {
   markAsReadService,
   markAllAsReadService,
 } from "../Services/NotificationService.js";
+import Notification from "../Models/Notification.js";
 
 const getUserNotificationsController = async (req, res, next) => {
   try {
     const userId = req.user._id;
     const notifications = await getUserNotificationsService(userId, req.query);
+    const total = await Notification.countDocuments({ recipient: userId });
+    const limit = parseInt(req.query.limit) || 10;
+    const totalPages = Math.ceil(total / limit) || 1;
 
     res.status(200).json({
       status: "success",
       results: notifications.length,
+      total,
+      totalPages,
       data: notifications,
     });
   } catch (error) {

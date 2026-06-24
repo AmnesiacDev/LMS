@@ -5,6 +5,62 @@ import StudentProfile from "../Models/studentProfile.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
 import { recalculateAttendanceStreakService } from "./studentProfileServices.js";
+import { createNotificationService } from "./NotificationService.js";
+
+// ─── Notify student + parents when a meeting link is added/updated ───────────
+// Best-effort: failures are logged, never thrown so the session flow is never
+// broken by a notification problem. `studentProfile` is expected to be a doc
+// fetched via StudentProfile.findById (auto-populates `user` and `parents`).
+const notifyMeetingLink = async (studentProfile, session, { type, action }) => {
+  try {
+    if (!studentProfile) return;
+
+    const studentUserId = studentProfile.user?._id || studentProfile.user;
+    const studentName = studentProfile.user?.FullName || "your child";
+    const senderId = session.instructorId?._id || session.instructorId;
+    const sessionDate = session.date ? new Date(session.date).toLocaleString() : "";
+    const when = sessionDate ? ` on ${sessionDate}` : "";
+
+    const notifications = [];
+
+    if (studentUserId) {
+      notifications.push(
+        createNotificationService({
+          recipient: studentUserId,
+          sender: senderId,
+          type,
+          title: `🔗 Meeting link ${action} for "${session.title}"`,
+          message: `The meeting link for your session "${session.title}"${when} has been ${action}.`,
+          link: `/sessions/${session._id}`,
+        }),
+      );
+    }
+
+    for (const parent of studentProfile.parents || []) {
+      const parentId = parent?._id || parent;
+      if (!parentId) continue;
+      notifications.push(
+        createNotificationService({
+          recipient: parentId,
+          sender: senderId,
+          type,
+          title: `🔗 Meeting link ${action} for "${session.title}"`,
+          message: `The meeting link for ${studentName}'s session "${session.title}"${when} has been ${action}.`,
+          link: `/sessions/${session._id}`,
+        }),
+      );
+    }
+
+    const results = await Promise.allSettled(notifications);
+    results.forEach((r) => {
+      if (r.status === "rejected") {
+        console.error("[SessionService] Meeting link notification failed:", r.reason?.message);
+      }
+    });
+  } catch (err) {
+    console.error("[SessionService] Meeting link notification failed:", err.message);
+  }
+};
 
 const createSessionService = async (data) => {
   const { title, description, recapVideoLinks, attachmentsLinks, studentProfileId, instructorId, date, StudentAttended, meetingLink } = data;
@@ -41,6 +97,11 @@ const createSessionService = async (data) => {
   });
 
   recalculateAttendanceStreakService(session.studentProfileId).catch(() => {});
+
+  // Notify student + parents if the session already has a meeting link on creation
+  if (session.meetingLink) {
+    await notifyMeetingLink(studentProfile, session, { type: "new_session", action: "added" });
+  }
 
   return session;
 };
@@ -194,6 +255,12 @@ const getSessionsByInstructorService = async (instructorId, queryString = {}) =>
 
 
 const UpdateSessionByIdService = async (SessionId, data) => {
+  // Fetch the current state first so we can detect a meeting-link add/change.
+  const oldSession = await Session.findById(SessionId);
+  if (!oldSession) {
+    throw new AppErrorHelper("Session not found ! ", 404);
+  }
+
   const options = { new: true, runValidators: true };
   const session = await Session.findByIdAndUpdate(SessionId, data, options);
 
@@ -203,6 +270,17 @@ const UpdateSessionByIdService = async (SessionId, data) => {
 
   if ("StudentAttended" in data) {
     recalculateAttendanceStreakService(session.studentProfileId).catch(() => {});
+  }
+
+  // Notify student + parents when the meeting link is newly added or changed.
+  const oldLink = oldSession.meetingLink || "";
+  const newLink = session.meetingLink || "";
+  if (newLink && newLink !== oldLink) {
+    const studentProfile = await StudentProfile.findById(session.studentProfileId);
+    await notifyMeetingLink(studentProfile, session, {
+      type: "schedule_updated",
+      action: oldLink ? "updated" : "added",
+    });
   }
 
   return session;

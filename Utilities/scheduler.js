@@ -11,7 +11,7 @@ import {
 } from "./EmailHelper.js";
 import ScheduleEntry from "../Models/ScheduleEntry.js";
 import ScheduleSeries from "../Models/ScheduleSeries.js";
-import Notification from "../Models/Notification.js";
+import { createNotificationService } from "../Services/NotificationService.js";
 import { materializeSeriesService } from "../Services/scheduleSeriesService.js";
 
 const startScheduler = () => {
@@ -120,7 +120,13 @@ const startScheduler = () => {
         deletedAt: null,
         "reminders.sentAt": null,
         startAt: { $gt: now },
-      }).populate({ path: "studentProfileId", populate: { path: "user", select: "_id FullName" } });
+      }).populate({
+        path: "studentProfileId",
+        populate: [
+          { path: "user", select: "_id FullName" },
+          { path: "parents", select: "_id FullName" },
+        ],
+      });
 
       await Promise.allSettled(
         entries.map(async (entry) => {
@@ -138,8 +144,12 @@ const startScheduler = () => {
                 ? `${reminder.minutesBefore / 60} hour(s)`
                 : `${reminder.minutesBefore} minute(s)`;
 
-              // Notify student
-              const studentNotif = await Notification.create({
+              const studentName = entry.studentProfileId?.user?.FullName || "Your child";
+
+              // Notify the student. This is the authoritative delivery: the
+              // reminder is marked sent against the student's notification, so a
+              // failure here propagates and the reminder is retried next run.
+              const studentNotif = await createNotificationService({
                 recipient: studentUserId,
                 type: "schedule_reminder",
                 title: entry.title,
@@ -149,13 +159,41 @@ const startScheduler = () => {
               reminder.notificationId = studentNotif._id;
               modified = true;
 
-              // Also notify instructor for session entries
+              // Notify parents (all entry types) and the instructor (sessions
+              // only) as best-effort — their failures must not block marking the
+              // reminder as sent for the student above.
+              const extraRecipients = [];
+
+              for (const parent of entry.studentProfileId?.parents || []) {
+                const parentId = parent?._id || parent;
+                if (!parentId) continue;
+                extraRecipients.push(
+                  createNotificationService({
+                    recipient: parentId,
+                    type: "schedule_reminder",
+                    title: entry.title,
+                    message: `Reminder: ${studentName}'s "${entry.title}" starts in ${minutesLabel}`,
+                  }),
+                );
+              }
+
               if (entry.entryType === "session" && entry.instructorId) {
-                await Notification.create({
-                  recipient: entry.instructorId,
-                  type: "schedule_reminder",
-                  title: entry.title,
-                  message: `Reminder: "${entry.title}" starts in ${minutesLabel}`,
+                extraRecipients.push(
+                  createNotificationService({
+                    recipient: entry.instructorId,
+                    type: "schedule_reminder",
+                    title: entry.title,
+                    message: `Reminder: ${studentName}'s "${entry.title}" starts in ${minutesLabel}`,
+                  }),
+                );
+              }
+
+              if (extraRecipients.length) {
+                const results = await Promise.allSettled(extraRecipients);
+                results.forEach((r) => {
+                  if (r.status === "rejected") {
+                    console.error("[Scheduler] Reminder fan-out notification failed:", r.reason?.message);
+                  }
                 });
               }
             }

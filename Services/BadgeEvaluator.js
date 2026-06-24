@@ -1,6 +1,6 @@
 import { Badge, StudentBadge } from "../Models/Badge.js";
 import Gamification from "../Models/Gamification.js";
-import Notification from "../Models/Notification.js";
+import { createNotificationService } from "./NotificationService.js";
 import StudentProfile from "../Models/studentProfile.js";
 import { emitToUser } from "../Utilities/SocketManager.js";
 
@@ -65,27 +65,51 @@ export const evaluateBadges = async (studentProfileId) => {
           });
         }
 
-        // Send real-time notification via socket
-        const profile = await StudentProfile.findById(studentProfileId);
-        if (profile?.user) {
-          const userId = profile.user._id?.toString?.() || profile.user.toString();
+        // Send real-time notification via socket + persist for student & parents.
+        // Wrapped in its own try/catch so a notification failure is never
+        // mislabeled as a badge-unlock failure by the outer catch below.
+        try {
+          const profile = await StudentProfile.findById(studentProfileId);
+          if (profile?.user) {
+            const userId = profile.user._id?.toString?.() || profile.user.toString();
+            const studentName = profile.user.FullName || "Your child";
 
-          emitToUser(userId, "badge:unlocked", {
-            name: badge.name,
-            icon: badge.icon,
-            rarity: badge.rarity,
-            description: badge.description,
-            xpReward: badge.xpReward,
-          });
+            emitToUser(userId, "badge:unlocked", {
+              name: badge.name,
+              icon: badge.icon,
+              rarity: badge.rarity,
+              description: badge.description,
+              xpReward: badge.xpReward,
+            });
 
-          // Persist notification
-          await Notification.create({
-            recipient: userId,
-            type: "badge_unlocked",
-            title: `🏆 Badge Unlocked: ${badge.name}!`,
-            message: `${badge.description} — You earned ${badge.xpReward} bonus XP!`,
-            link: "/gamification/badges",
-          });
+            // Persist notification for the student
+            await createNotificationService({
+              recipient: userId,
+              type: "badge_unlocked",
+              title: `🏆 Badge Unlocked: ${badge.name}!`,
+              message: `${badge.description} — You earned ${badge.xpReward} bonus XP!`,
+              link: "/gamification/badges",
+            });
+
+            // Notify the parents too
+            const parentIds = (profile.parents || [])
+              .map((p) => p?._id?.toString?.() || p?.toString?.())
+              .filter(Boolean);
+
+            await Promise.allSettled(
+              parentIds.map((parentId) =>
+                createNotificationService({
+                  recipient: parentId,
+                  type: "badge_unlocked",
+                  title: `🏆 ${studentName} unlocked a badge: ${badge.name}!`,
+                  message: `${badge.description}${badge.xpReward > 0 ? ` — ${studentName} earned ${badge.xpReward} bonus XP!` : ""}`,
+                  link: "/gamification/badges",
+                }),
+              ),
+            );
+          }
+        } catch (notifyErr) {
+          console.error("[BadgeEvaluator] Badge unlock notification failed:", notifyErr.message);
         }
       } catch (err) {
         // Duplicate key error (race condition) — badge already earned, skip

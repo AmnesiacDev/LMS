@@ -7,6 +7,7 @@ import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import mongoose from "mongoose";
 import { uploadToCloudinary, deleteFromCloudinary } from "../Configs/cloudinary.js";
 import { canAccessStudentProfile } from "./studentProfileServices.js";
+import { createNotificationService } from "./NotificationService.js";
 
 const VALID_STATUSES = ["Pending", "Completed", "Reviewed", "Resubmitted", "Late submission"];
 
@@ -28,6 +29,42 @@ const getDocumentId = (value) => {
   if (!value) return null;
   if (value._id) return value._id.toString();
   return value.toString();
+};
+
+// Statuses that mean the student has actually handed work in. The Submission
+// pre-save hook can flip "Completed" to "Late submission" for overdue work, so
+// both count as a real submission for instructor-notification purposes.
+const SUBMITTED_STATUSES = ["Completed", "Late submission"];
+
+// Notify the task's instructor when a student submits work. Best-effort:
+// failures are logged, never thrown, so submission flows never break. The
+// submission's populated `task` lacks instructorId and its `studentProfileId`
+// isn't deep-populated, so we re-fetch both to get the instructor + student name.
+const notifyInstructorOfSubmission = async (submission) => {
+  try {
+    const taskId = getDocumentId(submission.task);
+    if (!taskId) return;
+
+    const task = await Task.findById(taskId);
+    const instructorId = getDocumentId(task?.instructorId);
+    if (!instructorId) return;
+
+    const profile = await StudentProfile.findById(getDocumentId(submission.studentProfileId));
+    const studentName = profile?.user?.FullName || "A student";
+    const taskTitle = task.title ? `"${task.title}"` : "a task";
+    const isLate = submission.status === "Late submission";
+
+    await createNotificationService({
+      recipient: instructorId,
+      sender: getDocumentId(profile?.user) || undefined,
+      type: "new_submission",
+      title: `📥 New submission from ${studentName}`,
+      message: `${studentName} submitted ${taskTitle}${isLate ? " (late submission)" : ""}.`,
+      link: `/submissions/${submission._id}`,
+    });
+  } catch (err) {
+    console.error("[SubmissionService] Instructor submission notification failed:", err.message);
+  }
 };
 
 const createSubmissionService = async (data, userData) => {
@@ -107,6 +144,11 @@ const createSubmissionService = async (data, userData) => {
 
   // Auto-complete the task when a submission is created
   await Task.findByIdAndUpdate(taskId, { status: "completed" });
+
+  // Notify the instructor only when the student actually handed work in.
+  if (SUBMITTED_STATUSES.includes(submission.status)) {
+    await notifyInstructorOfSubmission(submission);
+  }
 
   return submission;
 };
@@ -245,11 +287,20 @@ const submitTaskService = async (submissionId, links, note) => {
     throw new AppErrorHelper("Submission links are required!", 400);
   }
 
+  const wasSubmitted = SUBMITTED_STATUSES.includes(submission.status);
+
   submission.Task_links = links;
   submission.status = "Completed";
   if (note !== undefined) submission.note = note;
 
-  return await submission.save();
+  const saved = await submission.save();
+
+  // Notify the instructor only on the first transition into a submitted state.
+  if (!wasSubmitted) {
+    await notifyInstructorOfSubmission(saved);
+  }
+
+  return saved;
 };
 
 const reviewSubmissionService = async (submissionId, reviewData) => {
@@ -444,11 +495,18 @@ const uploadSubmissionFilesService = async (submissionId, files, userData) => {
 
   // A files-only submission is created as "Pending" (no links at creation time).
   // Now that files are attached, it counts as actually submitted.
+  const wasPending = submission.status === "Pending";
   if (submission.status === "Pending") {
     submission.status = "Completed";
   }
 
   await submission.save({ validateBeforeSave: false });
+
+  // Only notify on the transition into a submitted state, so re-uploading files
+  // to an already-submitted submission doesn't re-notify the instructor.
+  if (wasPending && SUBMITTED_STATUSES.includes(submission.status)) {
+    await notifyInstructorOfSubmission(submission);
+  }
 
   return submission;
 };

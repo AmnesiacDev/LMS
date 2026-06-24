@@ -23,6 +23,7 @@ const xpEntrySchema = new mongoose.Schema(
         "puzzle_solved",
         "exam_passed",
         "badge_bonus",
+        "lesson_completed",
       ],
     },
     sourceId: { type: mongoose.Schema.ObjectId },

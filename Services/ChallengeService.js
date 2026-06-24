@@ -302,6 +302,24 @@ export const getMyAttemptsService = async (studentProfileId, queryString = {}) =
   return features.mongooseQuery;
 };
 
+export const getAllAttemptsService = async (queryString = {}) => {
+  const features = new ApiFeatures(
+    ChallengeAttempt.find()
+      .populate({
+        path: "studentProfileId",
+        populate: { path: "user", select: "FullName UserName email" }
+      })
+      .populate("challenge", "title type difficulty xpReward"),
+    queryString,
+  )
+    .filter()
+    .sort()
+    .fields()
+    .pagination();
+
+  return features.mongooseQuery;
+};
+
 export const getChallengeLeaderboardService = async (challengeId, queryString = {}) => {
   const page = parseInt(queryString.page, 10) || 1;
   const limit = parseInt(queryString.limit, 10) || 20;

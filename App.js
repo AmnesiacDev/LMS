@@ -36,6 +36,7 @@ import scheduleRouter from "./Routes/ScheduleRouter.js";
 import GamificationRouter from "./Routes/GamificationRouter.js";
 import ChallengeRouter from "./Routes/ChallengeRouter.js";
 import LeaderboardRouter from "./Routes/LeaderboardRouter.js";
+import CurriculumRouter from "./Routes/CurriculumRouter.js";
 
 const app = express();
 
@@ -276,6 +277,7 @@ app.use("/api/v1/schedule", scheduleRouter);
 app.use("/api/v1/gamification", GamificationRouter);
 app.use("/api/v1/challenges", ChallengeRouter);
 app.use("/api/v1/leaderboard", LeaderboardRouter);
+app.use("/api/v1/curriculum", CurriculumRouter);
 
 // ─── 14. 404 Handler ────────────────────────────────────────────────────────────
 app.all(/.*/, (req, res, next) => {

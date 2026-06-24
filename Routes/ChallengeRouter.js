@@ -21,6 +21,7 @@ import {
   useHintController,
   getMyAttemptsController,
   getChallengeLeaderboardController,
+  getAllAttemptsController,
 } from "../Controllers/ChallengeController.js";
 
 const router = express.Router();
@@ -30,6 +31,7 @@ router.use(protectionController);
 
 // ─── Student attempt routes (must come before /:id to avoid conflicts) ────────
 router.get("/my-attempts", restrictedToController("student"), getMyAttemptsController);
+router.get("/attempts", restrictedToController("instructor", "admin"), getAllAttemptsController);
 
 // ─── Read routes (all authenticated users) ───────────────────────────────────
 router.get("/", getAllChallengesController);

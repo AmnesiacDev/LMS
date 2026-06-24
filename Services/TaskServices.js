@@ -5,6 +5,75 @@ import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import Session from "../Models/Session.js";
 import User from "../Models/user.js";
 import mongoose from "mongoose";
+import { createNotificationService } from "./NotificationService.js";
+
+// ─── Notify student + parents when a task (or batch of tasks) is assigned ─────
+// Best-effort: failures are logged, never thrown so task creation never breaks.
+// `studentProfile` is expected to be a doc fetched via StudentProfile.findById
+// (auto-populates `user` and `parents`).
+const notifyNewTask = async (studentProfile, { instructorId, title, taskId, count = 1 }) => {
+  try {
+    if (!studentProfile) return;
+
+    const studentUserId = studentProfile.user?._id || studentProfile.user;
+    const studentName = studentProfile.user?.FullName || "your child";
+    const senderId = instructorId?._id || instructorId;
+
+    const isBulk = count > 1;
+    const taskLabel = title ? `"${title}"` : "a new task";
+    // Fall back to the task list when we don't have a single task id to link to.
+    const link = !isBulk && taskId ? `/tasks/${taskId}` : "/tasks";
+
+    const studentTitle = isBulk ? `📝 You have ${count} new tasks` : "📝 New task assigned";
+    const studentMessage = isBulk
+      ? `You have ${count} new tasks to complete. Check your task list.`
+      : `You have a new task: ${taskLabel}. Tap to view the details.`;
+
+    const parentTitle = isBulk ? `📝 ${studentName} has ${count} new tasks` : `📝 New task for ${studentName}`;
+    const parentMessage = isBulk
+      ? `${studentName} has ${count} new tasks to complete.`
+      : `${studentName} has a new task: ${taskLabel}.`;
+
+    const notifications = [];
+
+    if (studentUserId) {
+      notifications.push(
+        createNotificationService({
+          recipient: studentUserId,
+          sender: senderId,
+          type: "new_task",
+          title: studentTitle,
+          message: studentMessage,
+          link,
+        }),
+      );
+    }
+
+    for (const parent of studentProfile.parents || []) {
+      const parentId = parent?._id || parent;
+      if (!parentId) continue;
+      notifications.push(
+        createNotificationService({
+          recipient: parentId,
+          sender: senderId,
+          type: "new_task",
+          title: parentTitle,
+          message: parentMessage,
+          link,
+        }),
+      );
+    }
+
+    const results = await Promise.allSettled(notifications);
+    results.forEach((r) => {
+      if (r.status === "rejected") {
+        console.error("[TaskService] New task notification failed:", r.reason?.message);
+      }
+    });
+  } catch (err) {
+    console.error("[TaskService] New task notification failed:", err.message);
+  }
+};
 
 const createTaskServices = async (data) => {
   if (!data) {
@@ -42,7 +111,7 @@ const createTaskServices = async (data) => {
     throw new AppErrorHelper("Wrong assignment of roles!", 400);
   }
 
-  return await Task.create({
+  const task = await Task.create({
     sessionId: sessionId,
     studentProfileId: session.studentProfileId,
     instructorId: instructorId,
@@ -52,6 +121,14 @@ const createTaskServices = async (data) => {
     dueDate: dueDate || Date.now(),
     status: status,
   });
+
+  await notifyNewTask(studentProfile, {
+    instructorId,
+    title: task.title,
+    taskId: task._id,
+  });
+
+  return task;
 };
 
 // ─── Helper: get student profile IDs for an instructor (via sessions) ────────
@@ -363,7 +440,39 @@ const createBulkTasksService = async (data) => {
   }
 
   if (!tasks.length) throw new AppErrorHelper("No valid session/student combinations found", 400);
-  return await Task.insertMany(tasks);
+
+  const created = await Task.insertMany(tasks);
+
+  // Notify each student (+ their parents) once per bulk assignment with their
+  // own task count. Best-effort: never let a notification failure break the call.
+  try {
+    const tasksPerStudent = new Map();
+    for (const task of created) {
+      const key = task.studentProfileId.toString();
+      const entry = tasksPerStudent.get(key) || { count: 0, taskId: task._id };
+      entry.count += 1;
+      tasksPerStudent.set(key, entry);
+    }
+
+    const profileIds = [...tasksPerStudent.keys()];
+    const profiles = await StudentProfile.find({ _id: { $in: profileIds } });
+
+    await Promise.allSettled(
+      profiles.map((profile) => {
+        const entry = tasksPerStudent.get(profile._id.toString()) || { count: 1 };
+        return notifyNewTask(profile, {
+          instructorId,
+          title,
+          taskId: entry.taskId,
+          count: entry.count,
+        });
+      }),
+    );
+  } catch (err) {
+    console.error("[TaskService] Bulk task notifications failed:", err.message);
+  }
+
+  return created;
 };
 
 export {

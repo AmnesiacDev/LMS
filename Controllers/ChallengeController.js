@@ -13,6 +13,7 @@ import {
   useHintService,
   getMyAttemptsService,
   getChallengeLeaderboardService,
+  getAllAttemptsService,
 } from "../Services/ChallengeService.js";
 import { resolveStudentProfileId } from "../Services/GamificationService.js";
 
@@ -145,6 +146,16 @@ const useHintController = CatchAsync(async (req, res, next) => {
   });
 });
 
+const getAllAttemptsController = CatchAsync(async (req, res, next) => {
+  const attempts = await getAllAttemptsService(req.query);
+
+  res.status(200).json({
+    status: "success",
+    results: attempts.length,
+    data: { attempts },
+  });
+});
+
 const getMyAttemptsController = CatchAsync(async (req, res, next) => {
   const profileId = await resolveStudentProfileId(req.user);
   const attempts = await getMyAttemptsService(profileId, req.query);
@@ -179,4 +190,5 @@ export {
   useHintController,
   getMyAttemptsController,
   getChallengeLeaderboardController,
+  getAllAttemptsController,
 };
