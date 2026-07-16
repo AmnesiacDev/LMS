@@ -2,6 +2,7 @@ import Course from "../Models/Course.js";
 import Lesson from "../Models/Lesson.js";
 import LessonProgress from "../Models/LessonProgress.js";
 import { awardXP } from "./GamificationService.js";
+import { notifyStudentAndParents } from "./NotificationHelpers.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 
 /**
@@ -148,6 +149,18 @@ export const completeLessonProgress = async (studentProfileId, lessonId, score =
   let awardResult = null;
   if (!alreadyCompleted && lesson.xpReward > 0) {
     awardResult = await awardXP(studentProfileId, lesson.xpReward, "lesson_completed", lesson._id);
+  }
+
+  // Notify student + parents on first completion (best-effort, fire-and-forget)
+  if (!alreadyCompleted) {
+    notifyStudentAndParents(studentProfileId, {
+      type: "lesson_completed",
+      link: "/curriculum",
+      studentTitle: `📚 Lesson complete: ${lesson.title}`,
+      studentMessage: `You finished "${lesson.title}"${lesson.xpReward > 0 ? ` and earned ${lesson.xpReward} XP` : ""}. Great job!`,
+      parentTitle: (name) => `📚 ${name} completed a lesson`,
+      parentMessage: (name) => `${name} finished "${lesson.title}"${lesson.xpReward > 0 ? ` and earned ${lesson.xpReward} XP` : ""}.`,
+    }).catch(() => {});
   }
 
   return {

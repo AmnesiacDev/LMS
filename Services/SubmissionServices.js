@@ -8,6 +8,7 @@ import mongoose from "mongoose";
 import { uploadToCloudinary, deleteFromCloudinary } from "../Configs/cloudinary.js";
 import { canAccessStudentProfile } from "./studentProfileServices.js";
 import { createNotificationService } from "./NotificationService.js";
+import { notifyStudentAndParents } from "./NotificationHelpers.js";
 
 const VALID_STATUSES = ["Pending", "Completed", "Reviewed", "Resubmitted", "Late submission"];
 
@@ -314,7 +315,25 @@ const reviewSubmissionService = async (submissionId, reviewData) => {
   submission.review.reviewAt = new Date();
 
   submission.status = "Reviewed";
-  return await submission.save();
+  const saved = await submission.save();
+
+  // Notify student + parents that their submission was graded (best-effort)
+  (async () => {
+    const task = await Task.findById(getDocumentId(saved.task));
+    const taskTitle = task?.title ? `"${task.title}"` : "your task";
+    const score = saved.review?.score;
+    const scoreText = score !== undefined && score !== null ? ` — score: ${score}` : "";
+    notifyStudentAndParents(saved.studentProfileId, {
+      type: "task_graded",
+      link: `/submissions/${saved._id}`,
+      studentTitle: "✅ Your submission was graded",
+      studentMessage: `Your work on ${taskTitle} has been reviewed${scoreText}.`,
+      parentTitle: (name) => `✅ ${name}'s submission was graded`,
+      parentMessage: (name) => `${name}'s work on ${taskTitle} has been reviewed${scoreText}.`,
+    });
+  })().catch(() => {});
+
+  return saved;
 };
 
 const getSubmissionStatsByStudentIdService = async (studentProfileId, currentUser = null) => {

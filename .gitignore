@@ -70,3 +70,13 @@ ruvector.db
 /test
 *.test.js
 *.spec.js
+
+# Frontend guides
+/CURRICULUM_FRONTEND_GUIDE.md
+
+# Reproducible integration tests used by CI
+!/tests/
+!/tests/*.test.js
+
+# Local AI-agent runtime state
+.claude-flow/

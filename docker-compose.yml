@@ -1,40 +1,65 @@
-version: '3.8'
-
+# Local development stack only. Production credentials and topology belong in
+# the selected hosting platform, not in this file.
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
     ports:
-      - "3000:3000"
+      - "${BACKEND_PORT:-3000}:3000"
     environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - CONNECTION_STRING=mongodb://mongodb:27017/lms
-      - ALLOWED_ORIGINS=http://localhost:5173,https://your-frontend-domain.com
-      # Add other env vars as needed
+      NODE_ENV: development
+      PORT: 3000
+      CONNECTION_STRING: mongodb://mongodb:27017/lms
+      REDIS_URL: redis://redis:6379
+      SALT_ROUNDS: 10
+      JWT_TOKEN_SECRET: local-development-only-access-token-secret
+      JWT_TOKEN_EXPIRES_IN: 15m
+      JWT_REFRESH_TOKEN_SECRET: local-development-only-refresh-token-secret
+      JWT_REFRESH_EXPIRES_IN: 7d
+      CLOUDINARY_CLOUD_NAME: local-development
+      CLOUDINARY_API_KEY: local-development
+      CLOUDINARY_API_SECRET: local-development
+      CORS_ORIGIN: http://localhost:5173
+      CLIENT_URL: http://localhost:5173
+      TRUST_PROXY: 0
+      LOG_TO_DISK: "false"
+      SCHEDULER_ENABLED: "false"
     depends_on:
-      - mongodb
-      - redis
-    volumes:
-      - ./logs:/app/logs
-    restart: unless-stopped
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    stop_grace_period: 15s
 
   mongodb:
     image: mongo:7-jammy
     ports:
-      - "27017:27017"
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
     environment:
-      - MONGO_INITDB_DATABASE=lms
+      MONGO_INITDB_DATABASE: lms
     volumes:
       - mongodb_data:/data/db
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "quit(db.adminCommand('ping').ok ? 0 : 2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
 volumes:
   mongodb_data:

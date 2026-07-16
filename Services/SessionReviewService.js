@@ -4,6 +4,7 @@ import Session from "../Models/Session.js";
 import StudentProfile from "../Models/studentProfile.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
+import { notifyStudentAndParents } from "./NotificationHelpers.js";
 import mongoose from "mongoose";
 
 const createSessionReviewService = async (data, currentUser = null) => {
@@ -86,6 +87,17 @@ const createSessionReviewService = async (data, currentUser = null) => {
     coding,
   });
 
+  // Notify student + parents that the instructor left a session review
+  notifyStudentAndParents(resolvedStudentProfileId, {
+    type: "session_review",
+    link: "/reviews",
+    sender: resolvedInstructorId,
+    studentTitle: "⭐ New session review",
+    studentMessage: `Your instructor added a review for the session "${session.title}".`,
+    parentTitle: (name) => `⭐ New session review for ${name}`,
+    parentMessage: (name) => `A new review was added for ${name}'s session "${session.title}".`,
+  }).catch(() => {});
+
   return review;
 };
 
@@ -93,7 +105,7 @@ const getAllSessionReviewsService = async (queryString, user = null) => {
   let filter = {};
 
   if (user?.role === "instructor") {
-    filter = { Instructor: user._id };
+    filter = { $and: [{ Instructor: user._id }] };
   }
 
   const mongooseQuery = SessionReview.find(filter)

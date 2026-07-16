@@ -2,7 +2,25 @@ import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
 import Exam from "../Models/exam.js";
 import StudentProfile from "../Models/studentProfile.js";
+import { notifyStudentAndParents } from "./NotificationHelpers.js";
 import mongoose from "mongoose";
+
+// Shared exam-result notification to student + parents (best-effort)
+const notifyExamResult = (studentProfileId, exam, sender) => {
+  const scoreText =
+    exam.score !== undefined && exam.score !== null
+      ? ` — score ${exam.score}${exam.totalMark ? `/${exam.totalMark}` : ""}`
+      : "";
+  notifyStudentAndParents(studentProfileId, {
+    type: "exam_result",
+    link: "/exams",
+    sender,
+    studentTitle: `📊 Exam result: ${exam.title}`,
+    studentMessage: `Your exam "${exam.title}" has been recorded${scoreText}.`,
+    parentTitle: (name) => `📊 Exam result for ${name}`,
+    parentMessage: (name) => `${name}'s exam "${exam.title}" has been recorded${scoreText}.`,
+  }).catch(() => {});
+};
 
 const createExamService = async (data) => {
   const { title, description, totalMark, passingMark, score, date, createdBy, studentProfileId, studentId } = { ...data };
@@ -26,7 +44,7 @@ const createExamService = async (data) => {
     throw new AppErrorHelper("Student profile not found!", 404);
   }
 
-  return await Exam.create({
+  const exam = await Exam.create({
     title,
     description,
     totalMark,
@@ -36,6 +54,10 @@ const createExamService = async (data) => {
     createdBy,
     studentProfileId: resolvedStudentProfileId,
   });
+
+  notifyExamResult(resolvedStudentProfileId, exam, createdBy);
+
+  return exam;
 };
 
 const getMyExamByIdService = async (user, examId) => {
@@ -145,6 +167,11 @@ const updateExamService = async (examId, data) => {
 
   if (!exam) {
     throw new AppErrorHelper("Exam not found ! ", 404);
+  }
+
+  // Re-notify when a score is (re)recorded on update
+  if (updateData.score !== undefined && updateData.score !== null) {
+    notifyExamResult(exam.studentProfileId, exam, exam.createdBy);
   }
 
   return exam;

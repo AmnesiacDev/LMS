@@ -16,7 +16,7 @@ const CreateExternalCourseController = CatchAsync(async (req, res, next) => {
     return next(new AppErrorHelper("Data is missing!", 400));
   }
 
-  const course = await createExternalCourseService(req.body);
+  const course = await createExternalCourseService(req.user, req.body);
 
   res.status(201).json({
     status: "success",
@@ -87,7 +87,7 @@ const getExternalCoursesByStudentController = CatchAsync(async (req, res, next) 
 });
 
 const updateExternalCourseController = CatchAsync(async (req, res, next) => {
-  const course = await updateExternalCourseService(req.params.id, req.body);
+  const course = await updateExternalCourseService(req.user, req.params.id, req.body);
 
   if (!course) {
     return next(new AppErrorHelper("Course not found!", 404));
@@ -102,7 +102,7 @@ const updateExternalCourseController = CatchAsync(async (req, res, next) => {
 });
 
 const deleteExternalCourseController = CatchAsync(async (req, res, next) => {
-  const course = await deleteExternalCourseService(req.params.id);
+  const course = await deleteExternalCourseService(req.user, req.params.id);
 
   if (!course) {
     return next(new AppErrorHelper("Course not found!", 404));

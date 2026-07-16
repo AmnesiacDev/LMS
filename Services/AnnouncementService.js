@@ -2,10 +2,11 @@ import Announcement from "../Models/Announcement.js";
 import StudentProfile from "../Models/studentProfile.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
+import { notifyUsers } from "./NotificationHelpers.js";
 
 export const createAnnouncementService = async (data, instructorId) => {
   const { title, body, targetStudentProfiles, isPinned, expiresAt } = data;
-  return await Announcement.create({
+  const announcement = await Announcement.create({
     title,
     body,
     createdBy: instructorId,
@@ -13,6 +14,32 @@ export const createAnnouncementService = async (data, instructorId) => {
     isPinned: isPinned ?? false,
     expiresAt: expiresAt || null,
   });
+
+  // Notify the audience: targeted students (+ their parents), or everyone when
+  // it's a broadcast (no targets). Best-effort, fire-and-forget.
+  (async () => {
+    const hasTargets = Array.isArray(targetStudentProfiles) && targetStudentProfiles.length > 0;
+    const profiles = hasTargets
+      ? await StudentProfile.find({ _id: { $in: targetStudentProfiles } })
+      : await StudentProfile.find({});
+
+    const recipientIds = [];
+    for (const profile of profiles) {
+      if (profile.user) recipientIds.push(profile.user);
+      for (const parent of profile.parents || []) recipientIds.push(parent);
+    }
+
+    const preview = (body || "").trim().slice(0, 140);
+    await notifyUsers(recipientIds, {
+      sender: instructorId,
+      type: "announcement",
+      title: `📢 ${title}`,
+      message: preview || "A new announcement was posted.",
+      link: "/announcements",
+    });
+  })().catch((err) => console.error("[AnnouncementService] Notify failed:", err.message));
+
+  return announcement;
 };
 
 export const getAnnouncementsService = async (user, queryString = {}) => {

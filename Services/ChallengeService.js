@@ -2,6 +2,7 @@ import Challenge from "../Models/Challenge.js";
 import ChallengeAttempt from "../Models/ChallengeAttempt.js";
 import StudentProfile from "../Models/studentProfile.js";
 import { awardXP } from "./GamificationService.js";
+import { notifyStudentAndParents, notifyUsers, getStudentRecipients } from "./NotificationHelpers.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
 import mongoose from "mongoose";
@@ -216,6 +217,20 @@ export const submitCodingChallengeService = async (challengeId, studentProfileId
   }
 
   await attempt.save();
+
+  // Alert the challenge author (instructor) that there's work to grade
+  (async () => {
+    if (!challenge.createdBy) return;
+    const { studentUserId, studentName } = await getStudentRecipients(studentProfileId);
+    notifyUsers([challenge.createdBy], {
+      sender: studentUserId,
+      type: "new_submission",
+      title: "📥 Coding challenge submitted",
+      message: `${studentName} submitted "${challenge.title}" for grading.`,
+      link: "/challenges/manage",
+    });
+  })().catch(() => {});
+
   return attempt;
 };
 
@@ -253,6 +268,19 @@ export const gradeCodingChallengeService = async (attemptId, score, feedback, gr
   }
 
   await attempt.save();
+
+  // Notify student + parents that the coding challenge was graded
+  const gradedProfileId = attempt.studentProfileId?._id || attempt.studentProfileId;
+  notifyStudentAndParents(gradedProfileId, {
+    type: "challenge_graded",
+    link: "/challenges",
+    sender: gradedBy,
+    studentTitle: `🧩 Challenge graded: ${challenge.title}`,
+    studentMessage: `Your "${challenge.title}" submission scored ${score}/100${attempt.xpAwarded ? `, +${attempt.xpAwarded} XP` : ""}.`,
+    parentTitle: (name) => `🧩 ${name}'s challenge was graded`,
+    parentMessage: (name) => `${name}'s "${challenge.title}" submission scored ${score}/100.`,
+  }).catch(() => {});
+
   return attempt;
 };
 

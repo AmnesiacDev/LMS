@@ -13,31 +13,27 @@ import {
 import { protectionController as protectRoute, restrictedToController as restrictTo } from "../Controllers/AuthController.js";
 
 const router = express.Router();
+const staffOnly = restrictTo("admin", "instructor");
+const homeworkManagers = restrictTo("admin", "instructor", "parent");
+const scopedLearners = restrictTo("student", "parent");
 
 // ─── All routes require authentication ────────────────────────────────
 router.use(protectRoute);
 
+router.get("/my", scopedLearners, getMyExternalHWController);
+router.get("/my/:id", scopedLearners, getMyExternalHWByIdController);
 
-router.get("/my", getMyExternalHWController);
-router.get("/my/:id", getMyExternalHWByIdController);
+router.get("/course/:courseId", staffOnly, getExternalHWByCourseController);
 
-router.get("/course/:courseId", getExternalHWByCourseController);
+router.get("/", staffOnly, getAllExternalHWController);
 
+router.post("/", homeworkManagers, createExternalHWController);
 
-router.get("/", restrictTo("admin", "instructor"), getAllExternalHWController);
+router.get("/:id", staffOnly, getExternalHWByIdController);
 
+router.patch("/:id", homeworkManagers, updateExternalHWController);
 
-router.post("/", restrictTo("admin", "instructor", "parent"), createExternalHWController);
-
-
-router.get("/:id", getExternalHWByIdController);
-
-
-router.patch("/:id", restrictTo("admin", "instructor", "parent"), updateExternalHWController);
-
-
-router.delete("/:id", restrictTo("admin", "instructor", "parent"), deleteExternalHWController);
-
+router.delete("/:id", homeworkManagers, deleteExternalHWController);
 
 router.patch("/:id/complete", restrictTo("student"), markExternalHWCompleteController);
 

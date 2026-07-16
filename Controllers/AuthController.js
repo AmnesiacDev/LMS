@@ -2,6 +2,7 @@ import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import CatchAsync from "../Utilities/CatchAsync.js";
 
 import { refreshTokenService, LogOutService, LoginService, SignUpService, ProtectionService, ForgotPasswordService, ResetPasswordService, VerifyEmailService, ImpersonateService, GenerateApiKeyService } from "../Services/AuthServices.js";
+import { notifyAdmins } from "../Services/NotificationHelpers.js";
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 const CreateAndSendTokens = (req, res, accessToken, refreshToken) => {
@@ -36,6 +37,17 @@ const signUpController = CatchAsync(async (req, res, next) => {
   }
 
   const result = await SignUpService(user);
+
+  // Alert admins that a new account was created (best-effort, fire-and-forget)
+  if (result.user) {
+    notifyAdmins({
+      sender: result.user._id,
+      type: "new_user",
+      title: `👤 New ${result.user.role} registered`,
+      message: `${result.user.FullName} just joined as a ${result.user.role}.`,
+      link: "/users",
+    }).catch(() => {});
+  }
 
   CreateAndSendTokens(req, res, result.accessToken, result.refreshToken);
 

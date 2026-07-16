@@ -1,40 +1,28 @@
-# Use Node.js 22 Alpine for packages that require Node >=20.19
-FROM node:22-alpine AS base
-
-# Set working directory
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies
-RUN npm ci --omit=dev
-
-# Production stage
-FROM node:22-alpine AS production
+FROM node:22-alpine AS dependencies
 
 WORKDIR /app
 
-# Copy installed dependencies from base stage
-COPY --from=base /app/node_modules ./node_modules
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
-# Copy source code
-COPY . .
+FROM node:22-alpine AS runtime
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nodejs -u 1001
+ENV NODE_ENV=production \
+    PORT=3000
 
-# Change ownership of app directory
-RUN chown -R nodejs:nodejs /app
+WORKDIR /app
+
+RUN addgroup --system --gid 1001 nodejs \
+    && adduser --system --uid 1001 --ingroup nodejs nodejs
+
+COPY --from=dependencies --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --chown=nodejs:nodejs . .
+
 USER nodejs
 
-# Expose port
 EXPOSE 3000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "const port = process.env.PORT || 3000; require('http').get(`http://localhost:${port}/api/v1/health`, (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["node", "-e", "const http=require('http');const req=http.get({host:'127.0.0.1',port:process.env.PORT||3000,path:'/api/v1/health'},res=>process.exit(res.statusCode===200?0:1));req.on('error',()=>process.exit(1));"]
 
-# Start the application
-CMD ["npm", "start"]
+CMD ["node", "server.js"]

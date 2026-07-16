@@ -17,27 +17,25 @@ import {
 } from "../Controllers/SessionReviewController.js";
 
 const router = express.Router();
+const staffOnly = restrictedToController("admin", "instructor");
 
 router.use(protectionController);
 
+router.get("/", staffOnly, getAllSessionReviewsController);
 
-router.get("/", getAllSessionReviewsController);
-
-router.get("/session/:id", getSessionReviewsBySessionController);
+router.get("/session/:id", staffOnly, getSessionReviewsBySessionController);
 
 router.get("/me", getAllMySessionReviewsController);
 router.get("/me/stats", getMySessionReviewStatsController);
 router.get("/me/:id", getMySessionReviewController);
 
-router.use(restrictedToController("admin", "instructor"));
+router.use(staffOnly);
 
 router.get("/student/:id", getSessionReviewsByStudentController);
 router.get("/student/:id/stats", getStudentReviewStatsController);
 router.get("/instructor/:id", getSessionReviewsByInstructorController);
 
-
 router.post("/", createSessionReviewController);
-
 
 router.route("/:id").patch(updateSessionReviewByIdController).delete(deleteSessionReviewByIdController);
 

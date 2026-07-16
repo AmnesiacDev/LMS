@@ -66,7 +66,7 @@ const gamificationSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-gamificationSchema.index({ studentProfileId: 1 }, { unique: true });
+//gamificationSchema.index({ studentProfileId: 1 }, { unique: true });
 gamificationSchema.index({ xp: -1 }); // leaderboard sort
 gamificationSchema.index({ level: -1 });
 

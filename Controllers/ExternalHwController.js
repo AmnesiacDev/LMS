@@ -77,7 +77,7 @@ const createExternalHWController = CatchAsync(async (req, res, next) => {
     return next(new AppErrorHelper("Data is missing!", 400));
   }
 
-  const hw = await createExternalHwService(req.body);
+  const hw = await createExternalHwService(req.user, req.body);
 
   res.status(201).json({
     status: "success",
@@ -90,7 +90,7 @@ const updateExternalHWController = CatchAsync(async (req, res, next) => {
     return next(new AppErrorHelper("Data is missing!", 400));
   }
 
-  const hw = await updateExternalHwService(req.params.id, req.body);
+  const hw = await updateExternalHwService(req.user, req.params.id, req.body);
 
   res.status(200).json({
     status: "success",
@@ -100,7 +100,7 @@ const updateExternalHWController = CatchAsync(async (req, res, next) => {
 
 // ─── Delete HW ────────────────────────────────────────────────────────
 const deleteExternalHWController = CatchAsync(async (req, res, next) => {
-  await deleteExternalHwService(req.params.id);
+  await deleteExternalHwService(req.user, req.params.id);
 
   res.status(200).json({
     status: "Document deleted successfully",
@@ -109,7 +109,7 @@ const deleteExternalHWController = CatchAsync(async (req, res, next) => {
 
 // ─── Mark HW as Complete ──────────────────────────────────────────────
 const markExternalHWCompleteController = CatchAsync(async (req, res, next) => {
-  const hw = await markExternalHwCompleteService(req.params.id);
+  const hw = await markExternalHwCompleteService(req.user, req.params.id);
 
   res.status(200).json({
     status: "success",

@@ -1,12 +1,13 @@
 import bcrypt from "bcryptjs";
+import { parseSaltRounds } from "../Configs/validateEnv.js";
 
 async function hashPasswordHelper(plainPassword) {
-  const Salt_Rounds = process.env.Salt_Rounds;
-  return await bcrypt.hash(plainPassword, parseInt(Salt_Rounds));
+  const saltRounds = parseSaltRounds(process.env.SALT_ROUNDS);
+  return bcrypt.hash(plainPassword, saltRounds);
 }
 
 async function ComparePasswordHelper(plainPassword, hashedPassword) {
-  return await bcrypt.compare(plainPassword, hashedPassword);
+  return bcrypt.compare(plainPassword, hashedPassword);
 }
 
 export { hashPasswordHelper, ComparePasswordHelper };
