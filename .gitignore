@@ -37,6 +37,7 @@ Thumbs.db
 
 # Markdown docs
 *.md
+!/AGENTS.md
 /
 
 # Scripts

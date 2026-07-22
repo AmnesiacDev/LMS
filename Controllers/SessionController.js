@@ -3,6 +3,7 @@ import CatchAsync from "../Utilities/CatchAsync.js";
 import { createEvents } from "ics";
 import {
   createSessionService,
+  createBulkSessionsService,
   getMyAllSessionsService,
   getMySessionByIdService,
   getMyStudentsService,
@@ -207,6 +208,21 @@ const getSessionAiSummaryController = CatchAsync(async (req, res) => {
   });
 });
 
+const createBulkSessionsController = CatchAsync(async (req, res) => {
+  const sessions = await createBulkSessionsService({
+    ...req.body,
+    instructorId: req.user.role === "instructor" ? req.user._id : req.body.instructorId || req.user._id,
+  });
+
+  res.status(201).json({
+    status: "success",
+    results: sessions.length,
+    data: {
+      sessions,
+    },
+  });
+});
+
 export {
   deleteSessionByIdController,
   UpdateSessionByIdController,
@@ -215,6 +231,7 @@ export {
   getSessionsByInstructorController,
   getAllSessionsController,
   CreateSessionController,
+  createBulkSessionsController,
   getMySessionByIdController,
   getMyAllSessionController,
   getMyStudentsController,
@@ -224,3 +241,4 @@ export {
   generateSessionAiSummaryController,
   getSessionAiSummaryController,
 };
+

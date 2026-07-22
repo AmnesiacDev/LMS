@@ -106,6 +106,87 @@ const createSessionService = async (data) => {
   return session;
 };
 
+const createBulkSessionsService = async (data) => {
+  const {
+    studentProfileIds,
+    instructorId,
+    title,
+    description,
+    date,
+    meetingLink,
+    recapVideoLinks,
+    attachmentsLinks,
+    StudentAttended,
+    notes,
+    summary,
+  } = data;
+
+  if (!studentProfileIds || !Array.isArray(studentProfileIds) || studentProfileIds.length === 0) {
+    throw new AppErrorHelper("studentProfileIds array is required and must not be empty", 400);
+  }
+
+  if (!date) {
+    throw new AppErrorHelper("Session date is required", 400);
+  }
+
+  const instructor = await User.findById(instructorId);
+  if (!instructor || (instructor.role !== "instructor" && instructor.role !== "admin")) {
+    throw new AppErrorHelper("Valid instructor or admin required!", 400);
+  }
+
+  const profiles = await StudentProfile.find({ _id: { $in: studentProfileIds } }).populate("user parents");
+
+  if (!profiles.length) {
+    throw new AppErrorHelper("No valid student profiles found!", 404);
+  }
+
+  const createdSessions = [];
+  const parsedDate = new Date(date);
+
+  for (const profile of profiles) {
+    let studentUser = profile.user;
+    if (studentUser && typeof studentUser === "object" && !studentUser.role && studentUser._id) {
+      studentUser = await User.findById(studentUser._id);
+    } else if (studentUser && typeof studentUser !== "object") {
+      studentUser = await User.findById(studentUser);
+    }
+
+    if (!studentUser || studentUser.role !== "student") {
+      continue;
+    }
+
+    const session = await Session.create({
+      title,
+      description,
+      recapVideoLinks: recapVideoLinks || [],
+      attachmentsLinks: attachmentsLinks || [],
+      studentProfileId: profile._id,
+      instructorId: instructor._id,
+      date: parsedDate,
+      StudentAttended: StudentAttended ?? true,
+      meetingLink,
+      notes,
+      summary,
+    });
+
+    recalculateAttendanceStreakService(profile._id).catch(() => {});
+
+    if (session.meetingLink) {
+      await notifyMeetingLink(profile, session, { type: "new_session", action: "added" });
+    }
+
+    createdSessions.push(session);
+  }
+
+  if (!createdSessions.length) {
+    throw new AppErrorHelper("No valid sessions could be created!", 400);
+  }
+
+  return createdSessions;
+};
+
+
+
 const getSessionByIdService = async (SessionId) => {
   const session = await Session.findById(SessionId).populate([
     { path: "studentProfileId" },
@@ -358,6 +439,7 @@ const getParentStudentSessionsService = async (parentUserId, studentProfileId, q
 
 export {
   createSessionService,
+  createBulkSessionsService,
   getAllSessionsService,
   getSessionsByInstructorService,
   getSessionByIdService,

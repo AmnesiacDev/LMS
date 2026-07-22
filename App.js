@@ -17,6 +17,7 @@ const __dirname = path.dirname(__filename);
 
 import GlobalErrorHandler from "./Middleware/GlobalErrorHandler.js";
 import AppErrorHelper from "./Utilities/AppErrorHelper.js";
+import { auditLogMiddleware } from "./Middleware/auditLogMiddleware.js";
 import authRouter from "./Routes/authRouts.js";
 import userRouter from "./Routes/userRouts.js";
 import StudentProfileRouter from "./Routes/StudentProfileRouter.js";
@@ -200,6 +201,9 @@ app.use((req, _res, next) => {
   });
   next();
 });
+
+// ─── 7.5. Global Audit Logging Middleware ────────────────────────────────────
+app.use(auditLogMiddleware);
 
 // ─── 8. Compression ─────────────────────────────────────────────────────────────
 app.use(compression());

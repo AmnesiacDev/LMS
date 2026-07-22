@@ -8,6 +8,7 @@ import {
   getSessionsByInstructorController,
   getAllSessionsController,
   CreateSessionController,
+  createBulkSessionsController,
   getMyAllSessionController,
   getMySessionByIdController,
   getMyStudentsController,
@@ -49,6 +50,8 @@ router.get("/instructor/:id", getSessionsByInstructorController);
 router.get("/:id", getSessionByIdController);
 
 router.post("/", CreateSessionController);
+router.post("/bulk", createBulkSessionsController);
+
 
 router.route("/:id").patch(UpdateSessionByIdController).delete(deleteSessionByIdController);
 router.patch("/:id/soft-delete", softDeleteSessionController);
