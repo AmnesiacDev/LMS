@@ -8,6 +8,7 @@ import {
   getAllStudentProfileController,
   getStudentTranscriptController,
   linkChildController,
+  linkChildrenBulkController,
   adminLinkParentController,
   adminUnlinkParentController,
   adminLinkInstructorController,
@@ -20,6 +21,7 @@ import {
   updateStudentProfileSchema,
   profileIdSchema,
   linkChildSchema,
+  linkChildrenBulkSchema,
   adminLinkParentSchema,
   adminLinkInstructorSchema,
 } from "../Validation/studentProfileValidation.js";
@@ -29,6 +31,7 @@ const router = express.Router();
 router.use(protectionController);
 
 router.post("/link-child", restrictedToController("parent", "admin"), validate(linkChildSchema), linkChildController);
+router.post("/link-children-bulk", restrictedToController("parent", "admin"), validate(linkChildrenBulkSchema), linkChildrenBulkController);
 
 router.post("/admin/link-parent", restrictedToController("admin"), validate(adminLinkParentSchema), adminLinkParentController);
 router.post("/admin/unlink-parent", restrictedToController("admin"), validate(adminLinkParentSchema), adminUnlinkParentController);

@@ -64,6 +64,18 @@ const linkChildToParentService = async (childIdentifier, parentUser) => {
       parents: [parentUser._id],
     });
   } else {
+    const isAlreadyLinked = (profile.parents || []).some((p) => {
+      const pid = (p?._id || p)?.toString();
+      return pid === parentUser._id.toString();
+    });
+
+    if (isAlreadyLinked) {
+      throw new AppErrorHelper(
+        `Student "${studentUser.FullName || studentUser.UserName}" is already linked to this parent account!`,
+        409
+      );
+    }
+
     profile = await StudentProfile.findByIdAndUpdate(
       profile._id,
       { $addToSet: { parents: parentUser._id } },
@@ -72,6 +84,41 @@ const linkChildToParentService = async (childIdentifier, parentUser) => {
   }
 
   return profile;
+};
+
+const linkChildrenBulkService = async (identifiersInput, parentUser) => {
+  let list = [];
+  if (Array.isArray(identifiersInput)) {
+    list = identifiersInput;
+  } else if (typeof identifiersInput === "string") {
+    list = identifiersInput.split(/[\n,;\s]+/).map((s) => s.trim()).filter(Boolean);
+  }
+
+  // Deduplicate case-insensitively
+  const uniqueList = [...new Set(list.map((item) => item.trim()))].filter((item) => item.length > 0);
+
+  if (uniqueList.length === 0) {
+    throw new AppErrorHelper("Please provide at least one valid child email or username!", 400);
+  }
+
+  const linked = [];
+  const failed = [];
+
+  for (const item of uniqueList) {
+    try {
+      const profile = await linkChildToParentService(item, parentUser);
+      linked.push({ identifier: item, profile });
+    } catch (err) {
+      failed.push({ identifier: item, reason: err.message || "Could not link child" });
+    }
+  }
+
+  return {
+    linked,
+    failed,
+    totalLinked: linked.length,
+    totalFailed: failed.length,
+  };
 };
 
 const adminForceLinkParentService = async (studentUserId, parentUserId) => {
@@ -90,6 +137,18 @@ const adminForceLinkParentService = async (studentUserId, parentUserId) => {
       parents: [parentUser._id],
     });
   } else {
+    const isAlreadyLinked = (profile.parents || []).some((p) => {
+      const pid = (p?._id || p)?.toString();
+      return pid === parentUser._id.toString();
+    });
+
+    if (isAlreadyLinked) {
+      throw new AppErrorHelper(
+        `Student "${studentUser.FullName || studentUser.UserName}" is already linked to this parent!`,
+        409
+      );
+    }
+
     profile = await StudentProfile.findByIdAndUpdate(
       profile._id,
       { $addToSet: { parents: parentUser._id } },
@@ -127,6 +186,18 @@ const adminForceLinkInstructorService = async (studentUserId, instructorUserId) 
       instructors: [instructorUser._id],
     });
   } else {
+    const isAlreadyAssigned = (profile.instructors || []).some((i) => {
+      const iid = (i?._id || i)?.toString();
+      return iid === instructorUser._id.toString();
+    });
+
+    if (isAlreadyAssigned) {
+      throw new AppErrorHelper(
+        `Student "${studentUser.FullName || studentUser.UserName}" is already assigned to this instructor!`,
+        409
+      );
+    }
+
     profile = await StudentProfile.findByIdAndUpdate(
       profile._id,
       { $addToSet: { instructors: instructorUser._id } },
@@ -356,6 +427,7 @@ export {
   recalculateAttendanceStreakService,
   canAccessStudentProfile,
   linkChildToParentService,
+  linkChildrenBulkService,
   adminForceLinkParentService,
   adminForceUnlinkParentService,
   adminForceLinkInstructorService,

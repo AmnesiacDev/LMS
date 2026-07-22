@@ -10,6 +10,7 @@ import {
   getAllStudentProfilesService,
   canAccessStudentProfile,
   linkChildToParentService,
+  linkChildrenBulkService,
   adminForceLinkParentService,
   adminForceUnlinkParentService,
   adminForceLinkInstructorService,
@@ -44,6 +45,17 @@ const linkChildController = CatchAsync(async (req, res, next) => {
     status: "success",
     message: "Child successfully linked!",
     data: profile,
+  });
+});
+
+const linkChildrenBulkController = CatchAsync(async (req, res, next) => {
+  const { childIdentifiers } = req.body;
+  const result = await linkChildrenBulkService(childIdentifiers, req.user);
+
+  res.status(200).json({
+    status: "success",
+    message: `Processed bulk linking: ${result.totalLinked} linked successfully, ${result.totalFailed} failed.`,
+    data: result,
   });
 });
 
@@ -90,10 +102,7 @@ const adminUnlinkInstructorController = CatchAsync(async (req, res, next) => {
     data: profile,
   });
 });
-    status: "success",
-    data: profiles,
-  });
-});
+
 const getMyStudentProfileByIdController = CatchAsync(async (req, res, next) => {
   const profile = await getMyStudentProfileServiceById(req.user, req.params.id);
   if (!profile) {
@@ -243,6 +252,7 @@ export {
   getAllStudentProfileController,
   getStudentTranscriptController,
   linkChildController,
+  linkChildrenBulkController,
   adminLinkParentController,
   adminUnlinkParentController,
   adminLinkInstructorController,

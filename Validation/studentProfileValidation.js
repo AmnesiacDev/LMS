@@ -72,6 +72,18 @@ export const linkChildSchema = Joi.object({
   }),
 });
 
+export const linkChildrenBulkSchema = Joi.object({
+  childIdentifiers: Joi.alternatives()
+    .try(
+      Joi.array().items(Joi.string().trim().min(1)).min(1),
+      Joi.string().trim().min(1)
+    )
+    .required()
+    .messages({
+      "any.required": "Please provide child emails or usernames to link",
+    }),
+});
+
 export const adminLinkParentSchema = Joi.object({
   studentUserId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required().messages({
     "string.pattern.base": "Invalid student user ID format",
