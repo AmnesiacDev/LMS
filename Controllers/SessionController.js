@@ -24,7 +24,13 @@ const CreateSessionController = CatchAsync(async (req, res, next) => {
     return next(new AppErrorHelper("Data is missing !", 404));
   }
 
-  const session = await createSessionService(req.body);
+  const session = await createSessionService(
+    {
+      ...req.body,
+      instructorId: req.user.role === "instructor" ? req.user._id : req.body.instructorId,
+    },
+    req.user,
+  );
 
   res.status(201).json({
     status: "success",
@@ -47,7 +53,7 @@ const getAllSessionsController = CatchAsync(async (req, res, next) => {
 });
 
 const getSessionByIdController = CatchAsync(async (req, res, next) => {
-  const session = await getSessionByIdService(req.params.id);
+  const session = await getSessionByIdService(req.params.id, req.user);
 
   if (!session) {
     return next(new AppErrorHelper("No document found !", 404));
@@ -62,7 +68,7 @@ const getSessionByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const getSessionsByInstructorController = CatchAsync(async (req, res, next) => {
-  const docs = (await getSessionsByInstructorService(req.params.id, req.query)) || [];
+  const docs = (await getSessionsByInstructorService(req.params.id, req.query, req.user)) || [];
 
   res.status(200).json({
     status: "success",
@@ -74,7 +80,7 @@ const getSessionsByInstructorController = CatchAsync(async (req, res, next) => {
 });
 
 const getSessionsByStudentController = CatchAsync(async (req, res, next) => {
-  const docs = (await getSessionsByStudentService(req.params.id, req.query)) || [];
+  const docs = (await getSessionsByStudentService(req.params.id, req.query, req.user)) || [];
 
   res.status(200).json({
     status: "success",
@@ -86,7 +92,7 @@ const getSessionsByStudentController = CatchAsync(async (req, res, next) => {
 });
 
 const UpdateSessionByIdController = CatchAsync(async (req, res, next) => {
-  const session = await UpdateSessionByIdService(req.params.id, req.body);
+  const session = await UpdateSessionByIdService(req.params.id, req.body, req.user);
 
   if (!session) {
     return next(new AppErrorHelper("No document found !", 404));
@@ -101,7 +107,7 @@ const UpdateSessionByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const deleteSessionByIdController = CatchAsync(async (req, res, next) => {
-  const session = await deleteSessionByIdService(req.params.id);
+  const session = await deleteSessionByIdService(req.params.id, req.user);
 
   if (!session) {
     return next(new AppErrorHelper("No document found !", 404));
@@ -112,38 +118,32 @@ const deleteSessionByIdController = CatchAsync(async (req, res, next) => {
   });
 });
 
-const getMyAllSessionController = CatchAsync(async (req,res,next)=>{
+const getMyAllSessionController = CatchAsync(async (req, res, next) => {
+  const docs = (await getMyAllSessionsService(req.user, req.query)) || [];
 
-  const docs = (await getMyAllSessionsService(req.user,req.query)) || [];
-
- res.status(200).json({
+  res.status(200).json({
     status: "success",
     data: {
       results: docs.length,
       docs: docs,
     },
   });
-})
+});
 
-const getMySessionByIdController = CatchAsync(async (req,res,next)=>{
+const getMySessionByIdController = CatchAsync(async (req, res, next) => {
+  const session = await getMySessionByIdService(req.user, req.params.id);
 
-
-  const session = await getMySessionByIdService(req.user,req.params.id);
-
-  if(!session ){
-    throw new AppErrorHelper("No Data Found !" , 404);
+  if (!session) {
+    throw new AppErrorHelper("No Data Found !", 404);
   }
 
- res.status(200).json({
+  res.status(200).json({
     status: "success",
     data: {
       session: session,
     },
   });
-})
-
-
-
+});
 
 const getMyStudentsController = CatchAsync(async (req, res) => {
   const students = await getMyStudentsService(req.user);
@@ -158,7 +158,7 @@ const getMyStudentsController = CatchAsync(async (req, res) => {
 });
 
 const softDeleteSessionController = CatchAsync(async (req, res) => {
-  await softDeleteSessionService(req.params.id);
+  await softDeleteSessionService(req.params.id, req.user);
   res.status(200).json({ status: "success", message: "Session soft-deleted" });
 });
 
@@ -211,7 +211,8 @@ const getSessionAiSummaryController = CatchAsync(async (req, res) => {
 const createBulkSessionsController = CatchAsync(async (req, res) => {
   const sessions = await createBulkSessionsService({
     ...req.body,
-    instructorId: req.user.role === "instructor" ? req.user._id : req.body.instructorId || req.user._id,
+    instructorId: req.user.role === "instructor" ? req.user._id : req.body.instructorId,
+    currentUser: req.user,
   });
 
   res.status(201).json({
@@ -241,4 +242,3 @@ export {
   generateSessionAiSummaryController,
   getSessionAiSummaryController,
 };
-

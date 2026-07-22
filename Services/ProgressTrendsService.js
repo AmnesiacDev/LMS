@@ -8,6 +8,7 @@ import ExternalCourse from "../Models/externalCourse.js";
 import ExternalHW from "../Models/externalHw.js";
 import StudentProfile from "../Models/studentProfile.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
+import { assertInstructorAssignedToProfile } from "./StudentInstructorAssignmentService.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,9 @@ const resolveProfileIds = async (user, profileId) => {
     }
 
     // admin / instructor — can view any
+    if (user.role === "instructor") {
+      await assertInstructorAssignedToProfile(user._id, profileId);
+    }
     return [new mongoose.Types.ObjectId(profileId)];
   }
 
@@ -354,11 +358,7 @@ const getExamTrendsService = async (user, { profileId, period = "monthly", from,
         avgPercentage: {
           $round: [
             {
-              $cond: [
-                { $eq: ["$avgTotalMark", 0] },
-                0,
-                { $multiply: [{ $divide: ["$avgScore", "$avgTotalMark"] }, 100] },
-              ],
+              $cond: [{ $eq: ["$avgTotalMark", 0] }, 0, { $multiply: [{ $divide: ["$avgScore", "$avgTotalMark"] }, 100] }],
             },
             1,
           ],
@@ -366,11 +366,7 @@ const getExamTrendsService = async (user, { profileId, period = "monthly", from,
         passRate: {
           $round: [
             {
-              $cond: [
-                { $eq: ["$totalExams", 0] },
-                0,
-                { $multiply: [{ $divide: ["$passed", "$totalExams"] }, 100] },
-              ],
+              $cond: [{ $eq: ["$totalExams", 0] }, 0, { $multiply: [{ $divide: ["$passed", "$totalExams"] }, 100] }],
             },
             1,
           ],
@@ -429,11 +425,7 @@ const getAttendanceTrendsService = async (user, { profileId, period = "monthly",
         attendanceRate: {
           $round: [
             {
-              $cond: [
-                { $eq: ["$totalSessions", 0] },
-                0,
-                { $multiply: [{ $divide: ["$attended", "$totalSessions"] }, 100] },
-              ],
+              $cond: [{ $eq: ["$totalSessions", 0] }, 0, { $multiply: [{ $divide: ["$attended", "$totalSessions"] }, 100] }],
             },
             1,
           ],
@@ -544,9 +536,7 @@ const getChildrenComparisonService = async (user, { period = "monthly", from, to
     throw new AppErrorHelper("This endpoint is for parents only!", 403);
   }
 
-  const children = await StudentProfile.find({ parents: user._id })
-    .populate({ path: "user", select: "FullName UserName" })
-    .lean();
+  const children = await StudentProfile.find({ parents: user._id }).populate({ path: "user", select: "FullName UserName" }).lean();
 
   if (!children.length) {
     return [];
@@ -557,12 +547,7 @@ const getChildrenComparisonService = async (user, { period = "monthly", from, to
       const params = { profileId: child._id.toString(), period, from, to };
 
       // Run all trend queries in parallel for each child
-      const [reviewTrends, taskTrends, attendanceTrends, examTrends] = await Promise.all([
-        getReviewTrendsService(user, params),
-        getTaskTrendsService(user, params),
-        getAttendanceTrendsService(user, params),
-        getExamTrendsService(user, params),
-      ]);
+      const [reviewTrends, taskTrends, attendanceTrends, examTrends] = await Promise.all([getReviewTrendsService(user, params), getTaskTrendsService(user, params), getAttendanceTrendsService(user, params), getExamTrendsService(user, params)]);
 
       const latestReview = reviewTrends[reviewTrends.length - 1];
       const latestTask = taskTrends[taskTrends.length - 1];
@@ -597,10 +582,7 @@ const getExamAnalyticsSummaryService = async (user, profileId, { lastN = 10 } = 
 
   const targetId = profileIds[0];
 
-  const exams = await Exam.find({ studentProfileId: targetId })
-    .sort({ date: -1 })
-    .limit(Number(lastN))
-    .lean();
+  const exams = await Exam.find({ studentProfileId: targetId }).sort({ date: -1 }).limit(Number(lastN)).lean();
 
   if (!exams.length) {
     return { totalExams: 0, avgPercentage: 0, passRate: 0, weakestTopic: null, topicBreakdown: [], trend: [] };
@@ -612,12 +594,8 @@ const getExamAnalyticsSummaryService = async (user, profileId, { lastN = 10 } = 
     passed: e.score >= e.passingMark,
   }));
 
-  const avgPercentage = Math.round(
-    examWithPct.reduce((s, e) => s + e.percentage, 0) / examWithPct.length
-  );
-  const passRate = Math.round(
-    (examWithPct.filter((e) => e.passed).length / examWithPct.length) * 100
-  );
+  const avgPercentage = Math.round(examWithPct.reduce((s, e) => s + e.percentage, 0) / examWithPct.length);
+  const passRate = Math.round((examWithPct.filter((e) => e.passed).length / examWithPct.length) * 100);
 
   const topicMap = {};
   examWithPct.forEach((e) => {

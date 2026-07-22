@@ -67,7 +67,7 @@ const getSubmissionByIdController = CatchAsync(async (req, res, next) => {
  * GET /submissions/task/:taskId
  */
 const getSubmissionsByTaskIdController = CatchAsync(async (req, res, next) => {
-  const submissions = await getSubmissionsByTaskIdService(req.params.taskId, req.query);
+  const submissions = await getSubmissionsByTaskIdService(req.params.taskId, req.query, req.user);
 
   res.status(200).json({
     status: "success",
@@ -161,7 +161,7 @@ const getTasksDueDateBucketsController = CatchAsync(async (req, res, next) => {
  * Body: { Task_links?, note? }
  */
 const updateSubmissionByIdController = CatchAsync(async (req, res, next) => {
-  const submission = await updateSubmissionByIdService(req.params.id, req.body);
+  const submission = await updateSubmissionByIdService(req.params.id, req.body, req.user);
 
   res.status(200).json({
     status: "success",
@@ -174,7 +174,7 @@ const updateSubmissionByIdController = CatchAsync(async (req, res, next) => {
  * DELETE /submissions/:id
  */
 const deleteSubmissionByIdController = CatchAsync(async (req, res, next) => {
-  await deleteSubmissionByIdService(req.params.id);
+  await deleteSubmissionByIdService(req.params.id, req.user);
 
   res.status(204).json({
     status: "success",
@@ -194,7 +194,7 @@ const updateSubmissionStatusController = CatchAsync(async (req, res, next) => {
     return next(new AppErrorHelper("Status is required!", 400));
   }
 
-  const submission = await updateSubmissionStatusService(req.params.id, status);
+  const submission = await updateSubmissionStatusService(req.params.id, status, req.user);
 
   res.status(200).json({
     status: "success",
@@ -214,7 +214,7 @@ const submitTaskController = CatchAsync(async (req, res, next) => {
     return next(new AppErrorHelper("Links array is required!", 400));
   }
 
-  const submission = await submitTaskService(req.params.id, links, note);
+  const submission = await submitTaskService(req.params.id, links, note, req.user);
 
   res.status(200).json({
     status: "success",
@@ -239,7 +239,7 @@ const reviewSubmissionController = CatchAsync(async (req, res, next) => {
     return next(new AppErrorHelper("Score must be between 0 and 10!", 400));
   }
 
-  const submission = await reviewSubmissionService(req.params.id, { score, comment });
+  const submission = await reviewSubmissionService(req.params.id, { score, comment }, req.user);
 
   res.status(200).json({
     status: "success",

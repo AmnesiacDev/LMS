@@ -38,6 +38,8 @@ import GamificationRouter from "./Routes/GamificationRouter.js";
 import ChallengeRouter from "./Routes/ChallengeRouter.js";
 import LeaderboardRouter from "./Routes/LeaderboardRouter.js";
 import CurriculumRouter from "./Routes/CurriculumRouter.js";
+import StudentInstructorAssignmentRouter from "./Routes/StudentInstructorAssignmentRouter.js";
+import ChannelRouter from "./Routes/ChannelRouter.js";
 
 const app = express();
 
@@ -56,7 +58,10 @@ const isDevelopment = NODE_ENV === "development";
 
 const corsOriginEnv = process.env.CORS_ORIGIN || process.env.ALLOWED_ORIGINS;
 const allowedOrigins = corsOriginEnv
-  ? corsOriginEnv.split(",").map((origin) => origin.trim()).filter(Boolean)
+  ? corsOriginEnv
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean)
   : ["http://localhost:5173", "http://127.0.0.1:5173"];
 
 // ─── 1. Security Headers (Enhanced Helmet) ──────────────────────────────────────
@@ -74,12 +79,14 @@ app.use(
       },
     },
     crossOriginEmbedderPolicy: false,
-    hsts: isProduction ? {
-      maxAge: 31536000,
-      includeSubDomains: true,
-      preload: true,
-    } : false,
-  })
+    hsts: isProduction
+      ? {
+          maxAge: 31536000,
+          includeSubDomains: true,
+          preload: true,
+        }
+      : false,
+  }),
 );
 
 // ─── 2. CORS Configuration ──────────────────────────────────────────────────────
@@ -92,7 +99,7 @@ app.use(
     exposedHeaders: ["Content-Length", "X-Total-Count"],
     maxAge: 86400, // 24 hours
     optionsSuccessStatus: 200,
-  })
+  }),
 );
 
 // ─── 3. General API Rate Limiter ───────────────────────────────────────────────
@@ -108,10 +115,7 @@ app.use("/api", apiLimiter);
 
 // Helper function to extract client IP address
 const getClientIp = (req) => {
-  return (req.headers["x-forwarded-for"]?.split(",")[0].trim()) ||
-    req.ip ||
-    req.socket?.remoteAddress ||
-    "unknown";
+  return req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.ip || req.socket?.remoteAddress || "unknown";
 };
 
 const authLimiter = rateLimit({
@@ -148,10 +152,10 @@ if (logToDisk) {
   if (!fs.existsSync("logs")) fs.mkdirSync("logs", { recursive: true });
 
   const accessLogStream = fs.createWriteStream(path.join("logs", "access.log"), { flags: "a" });
-  const authLogStream   = fs.createWriteStream(path.join("logs", "auth.log"),   { flags: "a" });
+  const authLogStream = fs.createWriteStream(path.join("logs", "auth.log"), { flags: "a" });
 
   app.use(morgan("combined", { stream: accessLogStream }));
-  app.use("/api/v1/auth/login",  morgan("combined", { stream: authLogStream }));
+  app.use("/api/v1/auth/login", morgan("combined", { stream: authLogStream }));
   app.use("/api/v1/auth/signup", morgan("combined", { stream: authLogStream }));
 }
 
@@ -159,16 +163,18 @@ if (logToDisk) {
 app.use(morgan(isProduction ? "combined" : "dev"));
 
 // ─── 6. Body Parsers ───────────────────────────────────────────────────────────
-app.use(express.json({
-  limit: "10kb",
-  verify: (req, res, buf) => {
-    try {
-      JSON.parse(buf);
-    } catch (e) {
-      throw new AppErrorHelper("Invalid JSON in request body", 400);
-    }
-  }
-}));
+app.use(
+  express.json({
+    limit: "10kb",
+    verify: (req, res, buf) => {
+      try {
+        JSON.parse(buf);
+      } catch (e) {
+        throw new AppErrorHelper("Invalid JSON in request body", 400);
+      }
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true, limit: "10kb", parameterLimit: 20 }));
 app.use(cookieParser());
 
@@ -184,12 +190,12 @@ const sanitizeObject = (obj) => {
   return Object.fromEntries(
     Object.entries(obj)
       .filter(([key]) => !key.startsWith("$") && !key.includes("."))
-      .map(([key, val]) => [key, sanitizeObject(val)])
+      .map(([key, val]) => [key, sanitizeObject(val)]),
   );
 };
 
 app.use((req, _res, next) => {
-  if (req.body)   req.body   = sanitizeObject(req.body);
+  if (req.body) req.body = sanitizeObject(req.body);
   if (req.params) req.params = sanitizeObject(req.params);
   // Express 5 exposes req.query as a getter, so assignment throws.
   // Define a request-local value instead of writing through the getter.
@@ -217,7 +223,7 @@ app.use(
     customCss: ".swagger-ui .topbar { display: none }",
     customSiteTitle: "LMS API Docs",
     customfavIcon: "/favicon.ico",
-  })
+  }),
 );
 app.get("/api-docs.json", (req, res) => {
   res.setHeader("Content-Type", "application/json");
@@ -283,6 +289,8 @@ app.use("/api/v1/gamification", GamificationRouter);
 app.use("/api/v1/challenges", ChallengeRouter);
 app.use("/api/v1/leaderboard", LeaderboardRouter);
 app.use("/api/v1/curriculum", CurriculumRouter);
+app.use("/api/v1/student-instructor-assignments", StudentInstructorAssignmentRouter);
+app.use("/api/v1/channels", ChannelRouter);
 
 // ─── 14. 404 Handler ────────────────────────────────────────────────────────────
 app.all(/.*/, (req, res, next) => {

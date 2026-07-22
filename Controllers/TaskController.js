@@ -16,10 +16,15 @@ import {
   createBulkTasksService,
 } from "../Services/TaskServices.js";
 import CatchAsync from "../Utilities/CatchAsync.js";
-import Task from "../Models/Task.js";
 
 const createTaskController = CatchAsync(async (req, res, next) => {
-  const task = await createTaskServices(req.body);
+  const task = await createTaskServices(
+    {
+      ...req.body,
+      instructorId: req.user.role === "instructor" ? req.user._id : req.body.instructorId,
+    },
+    req.user,
+  );
 
   res.status(201).json({
     status: "success",
@@ -42,7 +47,7 @@ const getAllTasksController = CatchAsync(async (req, res, next) => {
 });
 
 const getTaskByIdController = CatchAsync(async (req, res, next) => {
-  const task = await getTaskByIdService(req.params.id);
+  const task = await getTaskByIdService(req.params.id, req.user);
 
   if (!task) {
     return next(new AppErrorHelper(" No task found ! ", 404));
@@ -57,7 +62,7 @@ const getTaskByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const getTasksBySessionIdController = CatchAsync(async (req, res, next) => {
-  const tasks = (await getTasksBySessionIdService(req.params.id, req.query)) || [];
+  const tasks = (await getTasksBySessionIdService(req.params.id, req.query, req.user)) || [];
 
   res.status(200).json({
     status: "success",
@@ -107,7 +112,7 @@ const getMyTasksStatsController = CatchAsync(async (req, res, next) => {
 });
 
 const getTasksByStudentIdController = CatchAsync(async (req, res, next) => {
-  const tasks = (await getTasksByStudentIdService(req.params.id, req.query)) || [];
+  const tasks = (await getTasksByStudentIdService(req.params.id, req.query, req.user)) || [];
 
   res.status(200).json({
     status: "success",
@@ -121,7 +126,7 @@ const getTasksByStudentIdController = CatchAsync(async (req, res, next) => {
 const getTasksStatsByStudentIdController = CatchAsync(async (req, res, next) => {
   // Stats service already returns a zero-filled default object when there's no data,
   // so just pass it through.
-  const tasks = await getTasksStatsByStudentIdService(req.params.id);
+  const tasks = await getTasksStatsByStudentIdService(req.params.id, req.user);
 
   res.status(200).json({
     status: "success",
@@ -132,7 +137,7 @@ const getTasksStatsByStudentIdController = CatchAsync(async (req, res, next) => 
 });
 
 const updateTaskByIdController = CatchAsync(async (req, res, next) => {
-  const tasks = await updateTaskByIdService(req.params.id, req.body);
+  const tasks = await updateTaskByIdService(req.params.id, req.body, req.user);
 
   res.status(200).json({
     status: "success",
@@ -143,7 +148,7 @@ const updateTaskByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const deleteTaskByIdController = CatchAsync(async (req, res, next) => {
-  const task = await deleteTaskByIdService(req.params.id);
+  const task = await deleteTaskByIdService(req.params.id, req.user);
 
   res.status(200).json({
     status: "success",
@@ -151,7 +156,7 @@ const deleteTaskByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const updateTaskStatusController = CatchAsync(async (req, res, next) => {
-  const task = await updateTaskStatusService(req.params.id, req.body);
+  const task = await updateTaskStatusService(req.params.id, req.body.status, req.user);
 
   res.status(200).json({
     status: "success",
@@ -162,12 +167,18 @@ const updateTaskStatusController = CatchAsync(async (req, res, next) => {
 });
 
 const softDeleteTaskController = CatchAsync(async (req, res) => {
-  await softDeleteTaskService(req.params.id);
+  await softDeleteTaskService(req.params.id, req.user);
   res.status(200).json({ status: "success", message: "Task soft-deleted" });
 });
 
 const createBulkTasksController = CatchAsync(async (req, res) => {
-  const tasks = await createBulkTasksService({ ...req.body, instructorId: req.user._id });
+  const tasks = await createBulkTasksService(
+    {
+      ...req.body,
+      instructorId: req.user.role === "instructor" ? req.user._id : req.body.instructorId,
+    },
+    req.user,
+  );
   res.status(201).json({ status: "success", results: tasks.length, data: { tasks } });
 });
 

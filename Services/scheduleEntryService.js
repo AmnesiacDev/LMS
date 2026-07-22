@@ -2,6 +2,16 @@ import ScheduleEntry from "../Models/ScheduleEntry.js";
 import Task from "../Models/Task.js";
 import StudentProfile from "../Models/studentProfile.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
+import { assertInstructorAssignedToProfile, getAssignedStudentProfilesService } from "./StudentInstructorAssignmentService.js";
+
+const assertCanManageEntry = async (user, entry) => {
+  if (user?.role === "admin") return;
+  if (user?.role !== "instructor") throw new AppErrorHelper("Not allowed", 403);
+  if (String(entry.instructorId) !== String(user._id)) {
+    throw new AppErrorHelper("Schedule entry not found", 404);
+  }
+  await assertInstructorAssignedToProfile(user._id, entry.studentProfileId);
+};
 
 // ─── Get entries within a date range, scoped by role ─────────────────────────
 const getEntriesService = async (user, startDate, endDate) => {
@@ -9,7 +19,7 @@ const getEntriesService = async (user, startDate, endDate) => {
   // on a Date field require actual Date objects — comparing a Date field
   // against a raw string does a BSON-type mismatch and returns zero results.
   const parsedStart = new Date(startDate);
-  const parsedEnd   = new Date(endDate);
+  const parsedEnd = new Date(endDate);
 
   // If endDate is a bare date (no time component), push it to end-of-day so
   // entries on that day are included.
@@ -21,7 +31,6 @@ const getEntriesService = async (user, startDate, endDate) => {
     startAt: { $gte: parsedStart, $lte: parsedEnd },
   };
 
-
   if (user.role === "student") {
     const profile = await StudentProfile.findOne({ user: user._id });
     if (!profile) throw new AppErrorHelper("Student profile not found", 404);
@@ -32,6 +41,8 @@ const getEntriesService = async (user, startDate, endDate) => {
     filter.studentProfileId = { $in: ids };
   } else if (user.role === "instructor") {
     filter.instructorId = user._id;
+    const profiles = await getAssignedStudentProfilesService(user);
+    filter.studentProfileId = { $in: profiles.map((profile) => profile._id) };
   } else if (user.role === "admin") {
     // no additional filter
   } else {
@@ -46,19 +57,8 @@ const getWeekEntriesService = async (user) => {
   const now = new Date();
   const day = now.getUTCDay(); // 0=Sun
   const diffToMonday = day === 0 ? -6 : 1 - day;
-  const monday = new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate() + diffToMonday,
-      0,
-      0,
-      0,
-    ),
-  );
-  const sunday = new Date(
-    monday.getTime() + 6 * 24 * 60 * 60 * 1000 + 23 * 3600000 + 59 * 60000 + 59000,
-  );
+  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diffToMonday, 0, 0, 0));
+  const sunday = new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000 + 23 * 3600000 + 59 * 60000 + 59000);
 
   return await getEntriesService(user, monday, sunday);
 };
@@ -73,9 +73,7 @@ const getEntryByIdService = async (user, entryId) => {
   }
 
   if (user.role === "instructor") {
-    if (String(entry.instructorId) !== String(user._id)) {
-      throw new AppErrorHelper("Not allowed", 403);
-    }
+    await assertCanManageEntry(user, entry);
     return entry;
   }
 
@@ -100,8 +98,15 @@ const getEntryByIdService = async (user, entryId) => {
 };
 
 // ─── Update an entry; sync task dueDate when endAt changes ───────────────────
-const updateEntryService = async (entryId, payload) => {
-  const entry = await ScheduleEntry.findByIdAndUpdate(entryId, payload, {
+const updateEntryService = async (entryId, payload, currentUser) => {
+  const existingEntry = await ScheduleEntry.findById(entryId);
+  if (!existingEntry) throw new AppErrorHelper("Schedule entry not found", 404);
+  await assertCanManageEntry(currentUser, existingEntry);
+
+  const { studentProfileId: ignoredStudentProfileId, instructorId: ignoredInstructorId, ...editablePayload } = payload;
+  void ignoredStudentProfileId;
+  void ignoredInstructorId;
+  const entry = await ScheduleEntry.findByIdAndUpdate(entryId, editablePayload, {
     new: true,
     runValidators: true,
   });
@@ -116,10 +121,13 @@ const updateEntryService = async (entryId, payload) => {
 };
 
 // ─── Create a custom entry with conflict detection ───────────────────────────
-const createCustomEntryService = async (payload) => {
+const createCustomEntryService = async (payload, currentUser) => {
   if (payload.entryType !== "custom") {
     throw new AppErrorHelper("entryType must be 'custom' for this endpoint", 400);
   }
+  const instructorId = currentUser?.role === "instructor" ? currentUser._id : payload.instructorId;
+  if (!instructorId) throw new AppErrorHelper("instructorId is required", 400);
+  await assertInstructorAssignedToProfile(instructorId, payload.studentProfileId);
 
   const conflicts = await ScheduleEntry.find({
     studentProfileId: payload.studentProfileId,
@@ -128,29 +136,22 @@ const createCustomEntryService = async (payload) => {
     endAt: { $gt: new Date(payload.startAt) },
   }).select("_id title startAt endAt");
 
-  const entry = await ScheduleEntry.create(payload);
+  const entry = await ScheduleEntry.create({ ...payload, instructorId });
 
   return { entry, conflicts };
 };
 
 // ─── Soft-delete an entry ─────────────────────────────────────────────────────
-const softDeleteEntryService = async (entryId) => {
-  const entry = await ScheduleEntry.findByIdAndUpdate(
-    entryId,
-    { deletedAt: new Date() },
-    { new: true },
-  );
+const softDeleteEntryService = async (entryId, currentUser) => {
+  const existingEntry = await ScheduleEntry.findById(entryId);
+  if (!existingEntry) throw new AppErrorHelper("Schedule entry not found", 404);
+  await assertCanManageEntry(currentUser, existingEntry);
+
+  const entry = await ScheduleEntry.findByIdAndUpdate(entryId, { deletedAt: new Date() }, { new: true });
 
   if (!entry) throw new AppErrorHelper("Schedule entry not found", 404);
 
   return entry;
 };
 
-export {
-  getEntriesService,
-  getWeekEntriesService,
-  getEntryByIdService,
-  updateEntryService,
-  createCustomEntryService,
-  softDeleteEntryService,
-};
+export { getEntriesService, getWeekEntriesService, getEntryByIdService, updateEntryService, createCustomEntryService, softDeleteEntryService };

@@ -6,6 +6,7 @@ import Session from "../Models/Session.js";
 import User from "../Models/user.js";
 import mongoose from "mongoose";
 import { createNotificationService } from "./NotificationService.js";
+import { assertInstructorAssignedToProfile, getAssignedStudentProfilesService } from "./StudentInstructorAssignmentService.js";
 
 // ─── Notify student + parents when a task (or batch of tasks) is assigned ─────
 // Best-effort: failures are logged, never thrown so task creation never breaks.
@@ -25,14 +26,10 @@ const notifyNewTask = async (studentProfile, { instructorId, title, taskId, coun
     const link = !isBulk && taskId ? `/tasks/${taskId}` : "/tasks";
 
     const studentTitle = isBulk ? `📝 You have ${count} new tasks` : "📝 New task assigned";
-    const studentMessage = isBulk
-      ? `You have ${count} new tasks to complete. Check your task list.`
-      : `You have a new task: ${taskLabel}. Tap to view the details.`;
+    const studentMessage = isBulk ? `You have ${count} new tasks to complete. Check your task list.` : `You have a new task: ${taskLabel}. Tap to view the details.`;
 
     const parentTitle = isBulk ? `📝 ${studentName} has ${count} new tasks` : `📝 New task for ${studentName}`;
-    const parentMessage = isBulk
-      ? `${studentName} has ${count} new tasks to complete.`
-      : `${studentName} has a new task: ${taskLabel}.`;
+    const parentMessage = isBulk ? `${studentName} has ${count} new tasks to complete.` : `${studentName} has a new task: ${taskLabel}.`;
 
     const notifications = [];
 
@@ -75,7 +72,20 @@ const notifyNewTask = async (studentProfile, { instructorId, title, taskId, coun
   }
 };
 
-const createTaskServices = async (data) => {
+const documentId = (value) => value?._id || value;
+
+const assertCanManageTask = async (currentUser, task) => {
+  if (currentUser?.role === "admin") return;
+  if (currentUser?.role !== "instructor") {
+    throw new AppErrorHelper("Not allowed", 403);
+  }
+  if (documentId(task.instructorId).toString() !== currentUser._id.toString()) {
+    throw new AppErrorHelper("Task not found", 404);
+  }
+  await assertInstructorAssignedToProfile(currentUser._id, documentId(task.studentProfileId));
+};
+
+const createTaskServices = async (data, currentUser) => {
   if (!data) {
     throw new AppErrorHelper("Data is missing!", 404);
   }
@@ -111,6 +121,14 @@ const createTaskServices = async (data) => {
     throw new AppErrorHelper("Wrong assignment of roles!", 400);
   }
 
+  if (currentUser?.role === "instructor" && instructor._id.toString() !== currentUser._id.toString()) {
+    throw new AppErrorHelper("Instructors can only create their own tasks", 403);
+  }
+  if (session.instructorId.toString() !== instructor._id.toString()) {
+    throw new AppErrorHelper("Session does not belong to this instructor", 403);
+  }
+  await assertInstructorAssignedToProfile(instructor._id, studentProfile._id);
+
   const task = await Task.create({
     sessionId: sessionId,
     studentProfileId: session.studentProfileId,
@@ -132,17 +150,12 @@ const createTaskServices = async (data) => {
 };
 
 // ─── Helper: get student profile IDs for an instructor (via sessions) ────────
-const getInstructorStudentProfileIds = async (instructorId) => {
-  const sessions = await Session.find({ instructorId }, { studentProfileId: 1 }).lean();
-  const ids = [...new Set(sessions.map((s) => s.studentProfileId.toString()))];
-  return ids.map((id) => new mongoose.Types.ObjectId(id));
-};
-
 const getAllTasksService = async (queryString = {}, user = null) => {
   let filter = {};
 
   if (user?.role === "instructor") {
-    const profileIds = await getInstructorStudentProfileIds(user._id);
+    const profiles = await getAssignedStudentProfilesService(user);
+    const profileIds = profiles.map((profile) => profile._id);
     filter = { instructorId: user._id, studentProfileId: { $in: profileIds } };
   }
 
@@ -150,12 +163,14 @@ const getAllTasksService = async (queryString = {}, user = null) => {
   return await features.mongooseQuery;
 };
 
-const getTaskByIdService = async (taskId) => {
+const getTaskByIdService = async (taskId, currentUser) => {
   const task = await Task.findById(taskId);
 
   if (!task) {
     throw new AppErrorHelper(" No task found ! ", 404);
   }
+
+  await assertCanManageTask(currentUser, task);
 
   return task;
 };
@@ -211,24 +226,38 @@ const getMyTaskByIdService = async (userData, taskId) => {
   }
 };
 
-const getTasksBySessionIdService = async (sessionId, queryString = {}) => {
+const getTasksBySessionIdService = async (sessionId, queryString = {}, currentUser) => {
+  const session = await Session.findById(sessionId);
+  if (!session) throw new AppErrorHelper("Session not found!", 404);
+  await assertCanManageTask(currentUser, session);
   const features = new ApiFeatures(Task.find({ sessionId: sessionId }), queryString).filter().sort().fields().pagination();
 
   return await features.mongooseQuery;
 };
 
-const getTasksByStudentIdService = async (studentProfileId, queryString = {}) => {
+const getTasksByStudentIdService = async (studentProfileId, queryString = {}, currentUser) => {
+  if (currentUser?.role === "instructor") {
+    await assertInstructorAssignedToProfile(currentUser._id, studentProfileId);
+  }
   const features = new ApiFeatures(Task.find({ studentProfileId: studentProfileId }), queryString).filter().sort().fields().pagination();
 
   return await features.mongooseQuery;
 };
 
-const updateTaskByIdService = async (TaskId, data) => {
+const updateTaskByIdService = async (TaskId, data, currentUser) => {
+  const existingTask = await Task.findById(TaskId);
+  if (!existingTask) throw new AppErrorHelper("Task not found!", 404);
+  await assertCanManageTask(currentUser, existingTask);
+
+  const { sessionId: ignoredSessionId, studentProfileId: ignoredStudentProfileId, instructorId: ignoredInstructorId, ...editableData } = data;
+  void ignoredSessionId;
+  void ignoredStudentProfileId;
+  void ignoredInstructorId;
   const options = {
     new: true,
     runValidators: true,
   };
-  const task = await Task.findByIdAndUpdate(TaskId, data, options);
+  const task = await Task.findByIdAndUpdate(TaskId, editableData, options);
 
   if (!task) {
     throw new AppErrorHelper("Task not found!", 404);
@@ -237,7 +266,11 @@ const updateTaskByIdService = async (TaskId, data) => {
   return task;
 };
 
-const updateTaskStatusService = async (TaskId, status) => {
+const updateTaskStatusService = async (TaskId, status, currentUser) => {
+  const existingTask = await Task.findById(TaskId);
+  if (!existingTask) throw new AppErrorHelper("Task not found!", 404);
+  await assertCanManageTask(currentUser, existingTask);
+
   const normalizedStatus = typeof status === "string" ? status.trim().toLowerCase() : "";
   const statusAliasMap = { cancelled: "canceled" };
   const finalStatus = statusAliasMap[normalizedStatus] || normalizedStatus;
@@ -260,8 +293,11 @@ const updateTaskStatusService = async (TaskId, status) => {
   return task;
 };
 
+const deleteTaskByIdService = async (TaskId, currentUser) => {
+  const existingTask = await Task.findById(TaskId);
+  if (!existingTask) throw new AppErrorHelper("Task not found!", 404);
+  await assertCanManageTask(currentUser, existingTask);
 
-const deleteTaskByIdService = async (TaskId) => {
   const deletedTask = await Task.findByIdAndDelete(TaskId);
 
   if (!deletedTask) throw new AppErrorHelper("Task not found!", 404);
@@ -269,9 +305,12 @@ const deleteTaskByIdService = async (TaskId) => {
   return deletedTask;
 };
 
-const getTasksStatsByStudentIdService = async (studentProfileId) => {
+const getTasksStatsByStudentIdService = async (studentProfileId, currentUser) => {
   if (!mongoose.Types.ObjectId.isValid(studentProfileId)) {
     throw new AppErrorHelper("Invalid student profile id!", 400);
+  }
+  if (currentUser?.role === "instructor") {
+    await assertInstructorAssignedToProfile(currentUser._id, studentProfileId);
   }
 
   const stats = await Task.aggregate([
@@ -314,13 +353,15 @@ const getTasksStatsByStudentIdService = async (studentProfileId) => {
     },
   ]);
 
-  return stats[0] || {
-    totalTasks: 0,
-    completedTasks: 0,
-    pendingTasks: 0,
-    canceledTasks: 0,
-    completionRate: 0,
-  };
+  return (
+    stats[0] || {
+      totalTasks: 0,
+      completedTasks: 0,
+      pendingTasks: 0,
+      canceledTasks: 0,
+      completionRate: 0,
+    }
+  );
 };
 
 const getMyTasksStatsService = async (userData) => {
@@ -388,28 +429,30 @@ const getMyTasksStatsService = async (userData) => {
     },
   ]);
 
-  return stats[0] || {
-    totalTasks: 0,
-    completedTasks: 0,
-    pendingTasks: 0,
-    canceledTasks: 0,
-    completionRate: 0,
-  };
+  return (
+    stats[0] || {
+      totalTasks: 0,
+      completedTasks: 0,
+      pendingTasks: 0,
+      canceledTasks: 0,
+      completionRate: 0,
+    }
+  );
 };
 
 // ─── Soft delete ─────────────────────────────────────────────────────────────
-const softDeleteTaskService = async (TaskId) => {
-  const task = await Task.findByIdAndUpdate(
-    TaskId,
-    { deletedAt: new Date() },
-    { new: true }
-  );
+const softDeleteTaskService = async (TaskId, currentUser) => {
+  const existingTask = await Task.findById(TaskId);
+  if (!existingTask) throw new AppErrorHelper("Task not found!", 404);
+  await assertCanManageTask(currentUser, existingTask);
+
+  const task = await Task.findByIdAndUpdate(TaskId, { deletedAt: new Date() }, { new: true });
   if (!task) throw new AppErrorHelper("Task not found!", 404);
   return task;
 };
 
 // ─── Bulk task assignment ─────────────────────────────────────────────────────
-const createBulkTasksService = async (data) => {
+const createBulkTasksService = async (data, currentUser) => {
   const { sessionIds, studentProfileIds, title, description, dueDate, taskLinks, instructorId } = data;
 
   if (!studentProfileIds?.length) throw new AppErrorHelper("studentProfileIds array is required", 400);
@@ -419,12 +462,24 @@ const createBulkTasksService = async (data) => {
   if (!instructor || instructor.role !== "instructor") {
     throw new AppErrorHelper("Valid instructor required", 400);
   }
+  if (currentUser?.role === "instructor" && instructor._id.toString() !== currentUser._id.toString()) {
+    throw new AppErrorHelper("Instructors can only create their own tasks", 403);
+  }
+
+  for (const studentProfileId of studentProfileIds) {
+    await assertInstructorAssignedToProfile(instructor._id, studentProfileId);
+  }
+
+  const sessions = await Session.find({ _id: { $in: sessionIds } });
+  const sessionById = new Map(sessions.map((session) => [session._id.toString(), session]));
 
   const tasks = [];
   for (const studentProfileId of studentProfileIds) {
     for (const sessionId of sessionIds) {
-      const session = await Session.findById(sessionId);
-      if (!session) continue;
+      const session = sessionById.get(sessionId.toString());
+      if (!session || session.instructorId.toString() !== instructor._id.toString() || session.studentProfileId.toString() !== studentProfileId.toString()) {
+        continue;
+      }
       tasks.push({
         sessionId,
         studentProfileId,

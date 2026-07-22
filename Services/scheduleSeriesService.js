@@ -2,6 +2,16 @@ import ScheduleSeries from "../Models/ScheduleSeries.js";
 import ScheduleEntry from "../Models/ScheduleEntry.js";
 import StudentProfile from "../Models/studentProfile.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
+import { assertInstructorAssignedToProfile, getAssignedStudentProfilesService } from "./StudentInstructorAssignmentService.js";
+
+const assertCanManageSeries = async (user, series) => {
+  if (user?.role === "admin") return;
+  if (user?.role !== "instructor") throw new AppErrorHelper("Not allowed", 403);
+  if (String(series.instructorId) !== String(user._id)) {
+    throw new AppErrorHelper("Schedule series not found", 404);
+  }
+  await assertInstructorAssignedToProfile(user._id, series.studentProfileId);
+};
 
 // ─── Helper: ISO week number ──────────────────────────────────────────────────
 const getWeekNumber = (date) => {
@@ -9,7 +19,7 @@ const getWeekNumber = (date) => {
   const dayNum = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
 };
 
 // ─── Materialize entries for a series between two dates ───────────────────────
@@ -24,9 +34,7 @@ const materializeSeriesService = async (series, fromDate, toDate) => {
   const current = new Date(fromDate);
 
   // Normalise exceptions to YYYY-MM-DD strings for fast lookup
-  const exceptionSet = new Set(
-    (series.exceptions || []).map((d) => new Date(d).toISOString().slice(0, 10))
-  );
+  const exceptionSet = new Set((series.exceptions || []).map((d) => new Date(d).toISOString().slice(0, 10)));
 
   // 3. Iterate day-by-day
   while (current <= toDate) {
@@ -57,10 +65,7 @@ const materializeSeriesService = async (series, fromDate, toDate) => {
       }
 
       // 5. Build entry
-      const startAt = new Date(Date.UTC(
-        current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate(),
-        hours, minutes, 0
-      ));
+      const startAt = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate(), hours, minutes, 0));
       const endAt = new Date(startAt.getTime() + series.durationMin * 60 * 1000);
 
       entries.push({
@@ -92,8 +97,11 @@ const materializeSeriesService = async (series, fromDate, toDate) => {
 };
 
 // ─── Create a new series and materialize 12 weeks ahead ──────────────────────
-const createSeriesService = async (payload) => {
-  const series = await ScheduleSeries.create(payload);
+const createSeriesService = async (payload, currentUser) => {
+  const instructorId = currentUser?.role === "instructor" ? currentUser._id : payload.instructorId;
+  if (!instructorId) throw new AppErrorHelper("instructorId is required", 400);
+  await assertInstructorAssignedToProfile(instructorId, payload.studentProfileId);
+  const series = await ScheduleSeries.create({ ...payload, instructorId });
   const horizon = new Date(Date.now() + 12 * 7 * 24 * 60 * 60 * 1000);
   await materializeSeriesService(series, series.startsOn, horizon);
   series.materializedUntil = horizon;
@@ -102,8 +110,14 @@ const createSeriesService = async (payload) => {
 };
 
 // ─── Update a series: soft-delete future entries and re-materialize ───────────
-const updateSeriesService = async (seriesId, payload) => {
-  const series = await ScheduleSeries.findByIdAndUpdate(seriesId, payload, {
+const updateSeriesService = async (seriesId, payload, currentUser) => {
+  const existingSeries = await ScheduleSeries.findById(seriesId);
+  if (!existingSeries) throw new AppErrorHelper("Schedule series not found!", 404);
+  await assertCanManageSeries(currentUser, existingSeries);
+  const { studentProfileId: ignoredStudentProfileId, instructorId: ignoredInstructorId, ...editablePayload } = payload;
+  void ignoredStudentProfileId;
+  void ignoredInstructorId;
+  const series = await ScheduleSeries.findByIdAndUpdate(seriesId, editablePayload, {
     new: true,
     runValidators: true,
   });
@@ -116,11 +130,7 @@ const updateSeriesService = async (seriesId, payload) => {
   const horizon = new Date(Date.now() + 12 * 7 * 24 * 60 * 60 * 1000);
 
   // Soft-delete all future entries belonging to this series
-  await ScheduleEntry.updateMany(
-    { seriesId, startAt: { $gt: now } },
-    { deletedAt: now },
-    { setOptions: { withDeleted: true } }
-  );
+  await ScheduleEntry.updateMany({ seriesId, startAt: { $gt: now } }, { deletedAt: now }, { setOptions: { withDeleted: true } });
 
   // Re-materialize from now
   await materializeSeriesService(series, now, horizon);
@@ -132,22 +142,18 @@ const updateSeriesService = async (seriesId, payload) => {
 };
 
 // ─── Soft-delete a series and all its future entries ─────────────────────────
-const softDeleteSeriesService = async (seriesId) => {
-  const series = await ScheduleSeries.findByIdAndUpdate(
-    seriesId,
-    { deletedAt: new Date() },
-    { new: true }
-  );
+const softDeleteSeriesService = async (seriesId, currentUser) => {
+  const existingSeries = await ScheduleSeries.findById(seriesId);
+  if (!existingSeries) throw new AppErrorHelper("Schedule series not found!", 404);
+  await assertCanManageSeries(currentUser, existingSeries);
+
+  const series = await ScheduleSeries.findByIdAndUpdate(seriesId, { deletedAt: new Date() }, { new: true });
 
   if (!series) {
     throw new AppErrorHelper("Schedule series not found!", 404);
   }
 
-  await ScheduleEntry.updateMany(
-    { seriesId: series._id, startAt: { $gt: new Date() } },
-    { deletedAt: new Date() },
-    { setOptions: { withDeleted: true } }
-  );
+  await ScheduleEntry.updateMany({ seriesId: series._id, startAt: { $gt: new Date() } }, { deletedAt: new Date() }, { setOptions: { withDeleted: true } });
 
   return series;
 };
@@ -155,7 +161,11 @@ const softDeleteSeriesService = async (seriesId) => {
 // ─── Get all series visible to a user ────────────────────────────────────────
 const getSeriesForUserService = async (user) => {
   if (user.role === "instructor") {
-    return await ScheduleSeries.find({ instructorId: user._id });
+    const profiles = await getAssignedStudentProfilesService(user);
+    return await ScheduleSeries.find({
+      instructorId: user._id,
+      studentProfileId: { $in: profiles.map((profile) => profile._id) },
+    });
   }
 
   if (user.role === "student") {
@@ -173,10 +183,21 @@ const getSeriesForUserService = async (user) => {
   throw new AppErrorHelper("Not allowed!", 403);
 };
 
-export {
-  createSeriesService,
-  materializeSeriesService,
-  updateSeriesService,
-  softDeleteSeriesService,
-  getSeriesForUserService,
+const getSeriesByIdService = async (user, seriesId) => {
+  const series = await ScheduleSeries.findById(seriesId);
+  if (!series) throw new AppErrorHelper("Series not found", 404);
+
+  if (["admin", "instructor"].includes(user.role)) {
+    await assertCanManageSeries(user, series);
+    return series;
+  }
+
+  if (user.role === "student") {
+    const profile = await StudentProfile.findOne({ user: user._id }, { _id: 1 });
+    if (profile && String(series.studentProfileId) === String(profile._id)) return series;
+  }
+
+  throw new AppErrorHelper("Series not found", 404);
 };
+
+export { createSeriesService, materializeSeriesService, updateSeriesService, softDeleteSeriesService, getSeriesForUserService, getSeriesByIdService };

@@ -9,6 +9,7 @@ import Session from "../Models/Session.js";
 import StudentProfile from "../Models/studentProfile.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import { chatCompletion } from "../Utilities/aiClient.js";
+import { isInstructorAssignedToProfile } from "./StudentInstructorAssignmentService.js";
 
 // Collapse the parts of a session that are worth summarizing into a plain-text
 // block. We only send titles for links (never invent what's behind them).
@@ -57,19 +58,13 @@ export const generateSessionSummaryService = async (sessionId, currentUser) => {
   }
 
   // Instructors may only summarize their own sessions; admins may summarize any.
-  if (
-    currentUser?.role === "instructor" &&
-    session.instructorId.toString() !== currentUser._id.toString()
-  ) {
+  if (currentUser?.role === "instructor" && (session.instructorId.toString() !== currentUser._id.toString() || !(await isInstructorAssignedToProfile(currentUser._id, session.studentProfileId)))) {
     throw new AppErrorHelper("You can only summarize your own sessions", 403);
   }
 
   const content = buildSessionContent(session);
   if (content.replace(/\s/g, "").length < 30) {
-    throw new AppErrorHelper(
-      "This session has too little content to summarize. Add a description or notes first.",
-      400,
-    );
+    throw new AppErrorHelper("This session has too little content to summarize. Add a description or notes first.", 400);
   }
 
   const { text, model } = await chatCompletion({
@@ -93,7 +88,7 @@ const canUserViewSession = async (session, currentUser) => {
   if (role === "admin") return true;
 
   if (role === "instructor") {
-    return session.instructorId.toString() === currentUser._id.toString();
+    return session.instructorId.toString() === currentUser._id.toString() && (await isInstructorAssignedToProfile(currentUser._id, session.studentProfileId));
   }
 
   if (role === "student") {

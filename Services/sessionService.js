@@ -6,6 +6,7 @@ import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
 import { recalculateAttendanceStreakService } from "./studentProfileServices.js";
 import { createNotificationService } from "./NotificationService.js";
+import { assertInstructorAssignedToProfile, getAssignedStudentProfilesService } from "./StudentInstructorAssignmentService.js";
 
 // ─── Notify student + parents when a meeting link is added/updated ───────────
 // Best-effort: failures are logged, never thrown so the session flow is never
@@ -62,7 +63,7 @@ const notifyMeetingLink = async (studentProfile, session, { type, action }) => {
   }
 };
 
-const createSessionService = async (data) => {
+const createSessionService = async (data, currentUser) => {
   const { title, description, recapVideoLinks, attachmentsLinks, studentProfileId, instructorId, date, StudentAttended, meetingLink } = data;
 
   const studentProfile = await StudentProfile.findById(studentProfileId);
@@ -83,6 +84,11 @@ const createSessionService = async (data) => {
   if (student.role !== "student" || instructor.role !== "instructor") {
     throw new AppErrorHelper("Wrong assignment of roles!", 400);
   }
+
+  if (currentUser?.role === "instructor" && instructor._id.toString() !== currentUser._id.toString()) {
+    throw new AppErrorHelper("Instructors can only create their own sessions", 403);
+  }
+  await assertInstructorAssignedToProfile(instructor._id, studentProfile._id);
 
   const session = await Session.create({
     title: title,
@@ -107,19 +113,7 @@ const createSessionService = async (data) => {
 };
 
 const createBulkSessionsService = async (data) => {
-  const {
-    studentProfileIds,
-    instructorId,
-    title,
-    description,
-    date,
-    meetingLink,
-    recapVideoLinks,
-    attachmentsLinks,
-    StudentAttended,
-    notes,
-    summary,
-  } = data;
+  const { studentProfileIds, instructorId, title, description, date, meetingLink, recapVideoLinks, attachmentsLinks, StudentAttended, notes, summary, currentUser } = data;
 
   if (!studentProfileIds || !Array.isArray(studentProfileIds) || studentProfileIds.length === 0) {
     throw new AppErrorHelper("studentProfileIds array is required and must not be empty", 400);
@@ -130,14 +124,21 @@ const createBulkSessionsService = async (data) => {
   }
 
   const instructor = await User.findById(instructorId);
-  if (!instructor || (instructor.role !== "instructor" && instructor.role !== "admin")) {
-    throw new AppErrorHelper("Valid instructor or admin required!", 400);
+  if (!instructor || instructor.role !== "instructor") {
+    throw new AppErrorHelper("Valid instructor required!", 400);
+  }
+  if (currentUser?.role === "instructor" && instructor._id.toString() !== currentUser._id.toString()) {
+    throw new AppErrorHelper("Instructors can only create their own sessions", 403);
   }
 
   const profiles = await StudentProfile.find({ _id: { $in: studentProfileIds } }).populate("user parents");
 
   if (!profiles.length) {
     throw new AppErrorHelper("No valid student profiles found!", 404);
+  }
+
+  for (const profile of profiles) {
+    await assertInstructorAssignedToProfile(instructor._id, profile._id);
   }
 
   const createdSessions = [];
@@ -185,17 +186,13 @@ const createBulkSessionsService = async (data) => {
   return createdSessions;
 };
 
-
-
-const getSessionByIdService = async (SessionId) => {
-  const session = await Session.findById(SessionId).populate([
-    { path: "studentProfileId" },
-    { path: "instructorId", select: "FullName Email" },
-  ]);
+const getSessionByIdService = async (SessionId, currentUser) => {
+  const session = await Session.findById(SessionId).populate([{ path: "studentProfileId" }, { path: "instructorId", select: "FullName Email" }]);
 
   if (!session) {
     throw new AppErrorHelper("Session not found!", 404);
   }
+  await assertCanManageSession(currentUser, session);
   return session;
 };
 
@@ -220,10 +217,14 @@ const getMyAllSessionsService = async (user, queryString) => {
     const childrenIds = childrenProfiles.map((profile) => profile._id);
     mongooseQuery = Session.find({ studentProfileId: { $in: childrenIds } });
   } else if (user.role === "instructor") {
-    mongooseQuery = Session.find({ instructorId: user._id })
+    const profiles = await getAssignedStudentProfilesService(user);
+    mongooseQuery = Session.find({
+      instructorId: user._id,
+      studentProfileId: { $in: profiles.map((profile) => profile._id) },
+    })
       .populate({
         path: "studentProfileId",
-        populate: { path: "user", select: "FullName Email UserName" }
+        populate: { path: "user", select: "FullName Email UserName" },
       })
       .populate({ path: "instructorId", select: "FullName Email" });
   } else {
@@ -233,8 +234,6 @@ const getMyAllSessionsService = async (user, queryString) => {
   const features = new ApiFeatures(mongooseQuery, queryString).filter().sort().fields().pagination();
   return await features.mongooseQuery;
 };
-
-
 
 const getMySessionByIdService = async (userData, sessionId) => {
   if (userData.role === "student") {
@@ -266,6 +265,7 @@ const getMySessionByIdService = async (userData, sessionId) => {
         populate: { path: "user", select: "FullName Email UserName" },
       })
       .populate({ path: "instructorId", select: "FullName Email" });
+    if (session) await assertCanManageSession(userData, session);
     return session;
   }
 
@@ -273,32 +273,39 @@ const getMySessionByIdService = async (userData, sessionId) => {
 };
 
 const getMyStudentsService = async (user) => {
-  if (user.role === "admin") {
-    return await StudentProfile.find({}).populate({ path: "user", select: "FullName Email UserName" });
+  return getAssignedStudentProfilesService(user);
+};
+
+const documentId = (value) => value?._id || value;
+
+const assertCanManageSession = async (currentUser, session) => {
+  if (currentUser?.role === "admin") return;
+  if (currentUser?.role !== "instructor") {
+    throw new AppErrorHelper("Not allowed", 403);
   }
 
-  if (user.role !== "instructor") {
-    throw new AppErrorHelper("Not allowed!", 403);
+  if (documentId(session.instructorId).toString() !== currentUser._id.toString()) {
+    throw new AppErrorHelper("Session not found", 404);
   }
 
-  const profileIds = await Session.distinct("studentProfileId", { instructorId: user._id });
-  if (!profileIds.length) return [];
-
-  return await StudentProfile.find({ _id: { $in: profileIds } })
-    .populate({ path: "user", select: "FullName Email UserName" });
+  await assertInstructorAssignedToProfile(currentUser._id, documentId(session.studentProfileId));
 };
 
 const getAllSessionsService = async (queryString, user = null) => {
   let filter = {};
 
   if (user?.role === "instructor") {
-    filter = { instructorId: user._id };
+    const profiles = await getAssignedStudentProfilesService(user);
+    filter = {
+      instructorId: user._id,
+      studentProfileId: { $in: profiles.map((profile) => profile._id) },
+    };
   }
 
   const mongooseQuery = Session.find(filter)
     .populate({
       path: "studentProfileId",
-      populate: { path: "user", select: "FullName Email UserName" }
+      populate: { path: "user", select: "FullName Email UserName" },
     })
     .populate({ path: "instructorId", select: "FullName Email" });
 
@@ -306,41 +313,49 @@ const getAllSessionsService = async (queryString, user = null) => {
   return await features.mongooseQuery;
 };
 
-
-
-
-const getSessionsByStudentService = async (studentProfileId, queryString = {}) => {
+const getSessionsByStudentService = async (studentProfileId, queryString = {}, currentUser) => {
+  if (currentUser?.role === "instructor") {
+    await assertInstructorAssignedToProfile(currentUser._id, studentProfileId);
+  }
   const mongooseQuery = Session.find({ studentProfileId })
     .populate({
       path: "studentProfileId",
-      populate: { path: "user", select: "FullName Email UserName" }
+      populate: { path: "user", select: "FullName Email UserName" },
     })
     .populate({ path: "instructorId", select: "FullName Email" });
   const features = new ApiFeatures(mongooseQuery, queryString).sort().fields().pagination();
   return await features.mongooseQuery;
 };
 
-const getSessionsByInstructorService = async (instructorId, queryString = {}) => {
-  const mongooseQuery = Session.find({ instructorId })
+const getSessionsByInstructorService = async (instructorId, queryString = {}, currentUser) => {
+  let filter = { instructorId };
+  if (currentUser?.role === "instructor") {
+    if (currentUser._id.toString() !== instructorId.toString()) {
+      throw new AppErrorHelper("Not allowed", 403);
+    }
+    const profiles = await getAssignedStudentProfilesService(currentUser);
+    filter = {
+      ...filter,
+      studentProfileId: { $in: profiles.map((profile) => profile._id) },
+    };
+  }
+  const mongooseQuery = Session.find(filter)
     .populate({
       path: "studentProfileId",
-      populate: { path: "user", select: "FullName Email UserName" }
+      populate: { path: "user", select: "FullName Email UserName" },
     })
     .populate({ path: "instructorId", select: "FullName Email" });
   const features = new ApiFeatures(mongooseQuery, queryString).sort().fields().pagination();
   return await features.mongooseQuery;
 };
 
-
-
-
-
-const UpdateSessionByIdService = async (SessionId, data) => {
+const UpdateSessionByIdService = async (SessionId, data, currentUser) => {
   // Fetch the current state first so we can detect a meeting-link add/change.
   const oldSession = await Session.findById(SessionId);
   if (!oldSession) {
     throw new AppErrorHelper("Session not found ! ", 404);
   }
+  await assertCanManageSession(currentUser, oldSession);
 
   const options = { new: true, runValidators: true };
   const session = await Session.findByIdAndUpdate(SessionId, data, options);
@@ -367,7 +382,13 @@ const UpdateSessionByIdService = async (SessionId, data) => {
   return session;
 };
 
-const deleteSessionByIdService = async (SessionId) => {
+const deleteSessionByIdService = async (SessionId, currentUser) => {
+  const existingSession = await Session.findById(SessionId);
+  if (!existingSession) {
+    throw new AppErrorHelper("Session not found!", 404);
+  }
+  await assertCanManageSession(currentUser, existingSession);
+
   const session = await Session.findByIdAndDelete(SessionId);
 
   if (!session) {
@@ -377,12 +398,12 @@ const deleteSessionByIdService = async (SessionId) => {
 };
 
 // ─── Soft delete ─────────────────────────────────────────────────────────────
-const softDeleteSessionService = async (sessionId) => {
-  const session = await Session.findByIdAndUpdate(
-    sessionId,
-    { deletedAt: new Date() },
-    { new: true }
-  );
+const softDeleteSessionService = async (sessionId, currentUser) => {
+  const existingSession = await Session.findById(sessionId);
+  if (!existingSession) throw new AppErrorHelper("Session not found!", 404);
+  await assertCanManageSession(currentUser, existingSession);
+
+  const session = await Session.findByIdAndUpdate(sessionId, { deletedAt: new Date() }, { new: true });
   if (!session) throw new AppErrorHelper("Session not found!", 404);
   return session;
 };
@@ -395,19 +416,27 @@ const getCalendarSessionsService = async (user) => {
     const profile = await StudentProfile.findOne({ user: user._id });
     if (profile) profileIds = [profile._id];
     return await Session.find({ studentProfileId: { $in: profileIds }, date: { $gte: new Date() } })
-      .select("title description date").lean();
+      .select("title description date")
+      .lean();
   }
 
   if (user.role === "parent") {
     const profiles = await StudentProfile.find({ parents: user._id }, { _id: 1 });
     profileIds = profiles.map((p) => p._id);
     return await Session.find({ studentProfileId: { $in: profileIds }, date: { $gte: new Date() } })
-      .select("title description date").lean();
+      .select("title description date")
+      .lean();
   }
 
   if (user.role === "instructor") {
-    return await Session.find({ instructorId: user._id, date: { $gte: new Date() } })
-      .select("title description date").lean();
+    const profiles = await getAssignedStudentProfilesService(user);
+    return await Session.find({
+      instructorId: user._id,
+      studentProfileId: { $in: profiles.map((profile) => profile._id) },
+      date: { $gte: new Date() },
+    })
+      .select("title description date")
+      .lean();
   }
 
   return [];
@@ -416,10 +445,7 @@ const getCalendarSessionsService = async (user) => {
 // ─── Auto-complete sessions that ended 2+ hours ago ──────────────────────────
 const autoCompleteStaleSessionsService = async () => {
   const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-  const result = await Session.updateMany(
-    { status: "pending", date: { $lt: twoHoursAgo }, deletedAt: null },
-    { $set: { status: "completed" } }
-  );
+  const result = await Session.updateMany({ status: "pending", date: { $lt: twoHoursAgo }, deletedAt: null }, { $set: { status: "completed" } });
   return result.modifiedCount;
 };
 

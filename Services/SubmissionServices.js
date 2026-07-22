@@ -9,6 +9,7 @@ import { uploadToCloudinary, deleteFromCloudinary } from "../Configs/cloudinary.
 import { canAccessStudentProfile } from "./studentProfileServices.js";
 import { createNotificationService } from "./NotificationService.js";
 import { notifyStudentAndParents } from "./NotificationHelpers.js";
+import { getAssignedStudentProfilesService } from "./StudentInstructorAssignmentService.js";
 
 const VALID_STATUSES = ["Pending", "Completed", "Reviewed", "Resubmitted", "Late submission"];
 
@@ -113,6 +114,7 @@ const createSubmissionService = async (data, userData) => {
   if (!studentProfile) {
     throw new AppErrorHelper("Student profile not found!", 404);
   }
+  await assertCanAccessStudent(userData, studentProfile._id);
 
   const taskStudentProfileId = getDocumentId(task.studentProfileId);
   const submissionStudentProfileId = getDocumentId(resolvedStudentProfileId);
@@ -158,8 +160,15 @@ const getAllSubmissionsService = async (queryString = {}, user = null) => {
   let filter = {};
 
   if (user?.role === "instructor") {
-    // Find task IDs that belong to this instructor (bypass populate hook + soft-delete filter for speed)
-    const tasks = await Task.find({ instructorId: user._id, deletedAt: null }, { _id: 1 })
+    const profiles = await getAssignedStudentProfilesService(user);
+    const tasks = await Task.find(
+      {
+        instructorId: user._id,
+        studentProfileId: { $in: profiles.map((profile) => profile._id) },
+        deletedAt: null,
+      },
+      { _id: 1 },
+    )
       .setOptions({ withDeleted: false })
       .lean();
     const taskIds = tasks.map((t) => t._id);
@@ -178,8 +187,6 @@ const getAllSubmissionsService = async (queryString = {}, user = null) => {
   return await features.mongooseQuery;
 };
 
-
-
 const getSubmissionByIdService = async (submissionId, currentUser = null) => {
   const submission = await Submission.findById(submissionId);
 
@@ -194,19 +201,17 @@ const getSubmissionByIdService = async (submissionId, currentUser = null) => {
   return submission;
 };
 
-
-const getSubmissionsByTaskIdService = async (taskId, queryString = {}) => {
+const getSubmissionsByTaskIdService = async (taskId, queryString = {}, currentUser = null) => {
   const task = await Task.findById(taskId);
   if (!task) {
     throw new AppErrorHelper("Task not found!", 404);
   }
+  await assertCanAccessStudent(currentUser, task.studentProfileId);
 
   const features = new ApiFeatures(Submission.find({ task: taskId }), queryString).filter().sort().fields().pagination();
 
   return await features.mongooseQuery;
 };
-
-
 
 const getSubmissionsByStudentIdService = async (studentProfileId, queryString = {}, currentUser = null) => {
   await assertCanAccessStudent(currentUser, studentProfileId);
@@ -216,9 +221,11 @@ const getSubmissionsByStudentIdService = async (studentProfileId, queryString = 
   return await features.mongooseQuery;
 };
 
+const updateSubmissionByIdService = async (submissionId, data, currentUser) => {
+  const existingSubmission = await Submission.findById(submissionId);
+  if (!existingSubmission) throw new AppErrorHelper("Submission not found!", 404);
+  await assertCanAccessStudent(currentUser, existingSubmission.studentProfileId);
 
-
-const updateSubmissionByIdService = async (submissionId, data) => {
   const { Task_links, note } = data;
 
   const safeUpdate = {};
@@ -236,18 +243,17 @@ const updateSubmissionByIdService = async (submissionId, data) => {
   return submission;
 };
 
-const deleteSubmissionByIdService = async (submissionId) => {
+const deleteSubmissionByIdService = async (submissionId, currentUser) => {
   const submission = await Submission.findById(submissionId);
   if (!submission) {
     throw new AppErrorHelper("Submission not found!", 404);
   }
+  await assertCanAccessStudent(currentUser, submission.studentProfileId);
 
   // Best-effort Cloudinary cleanup BEFORE deleting the Mongo doc. If a single
   // file fails to delete we log and continue — leaving an orphan in Cloudinary
   // is better than leaving an orphan in Mongo with broken URLs.
-  const publicIds = (submission.fileAttachments || [])
-    .map((f) => f.publicId)
-    .filter(Boolean);
+  const publicIds = (submission.fileAttachments || []).map((f) => f.publicId).filter(Boolean);
 
   if (publicIds.length) {
     const results = await Promise.allSettled(publicIds.map((id) => deleteFromCloudinary(id)));
@@ -262,7 +268,7 @@ const deleteSubmissionByIdService = async (submissionId) => {
   return submission;
 };
 
-const updateSubmissionStatusService = async (id, status) => {
+const updateSubmissionStatusService = async (id, status, currentUser) => {
   if (!VALID_STATUSES.includes(status)) {
     throw new AppErrorHelper(`Invalid status. Allowed values: ${VALID_STATUSES.join(", ")}`, 400);
   }
@@ -271,18 +277,23 @@ const updateSubmissionStatusService = async (id, status) => {
   if (!submission) {
     throw new AppErrorHelper("Submission not found!", 404);
   }
+  await assertCanAccessStudent(currentUser, submission.studentProfileId);
 
   submission.status = status;
   return await submission.save();
 };
 
 // ─── Submit task (student action)
-const submitTaskService = async (submissionId, links, note) => {
+const submitTaskService = async (submissionId, links, note, currentUser) => {
   const submission = await Submission.findById(submissionId);
 
   if (!submission) {
     throw new AppErrorHelper("Submission not found!", 404);
   }
+  if (currentUser?.role !== "student") {
+    throw new AppErrorHelper("Only the student can submit this task", 403);
+  }
+  await assertCanAccessStudent(currentUser, submission.studentProfileId);
 
   if (!links || links.length === 0) {
     throw new AppErrorHelper("Submission links are required!", 400);
@@ -304,11 +315,12 @@ const submitTaskService = async (submissionId, links, note) => {
   return saved;
 };
 
-const reviewSubmissionService = async (submissionId, reviewData) => {
+const reviewSubmissionService = async (submissionId, reviewData, currentUser) => {
   const submission = await Submission.findById(submissionId);
   if (!submission) {
     throw new AppErrorHelper("Submission not found!", 404);
   }
+  await assertCanAccessStudent(currentUser, submission.studentProfileId);
 
   submission.review.score = reviewData.score ?? submission.review.score;
   submission.review.comment = reviewData.comment ?? submission.review.comment;
@@ -376,14 +388,9 @@ const getAllMySubmissionsService = async (userData, queryString = {}) => {
     throw new AppErrorHelper("Not allowed", 403);
   }
 
-  const features = new ApiFeatures(Submission.find({ studentProfileId: { $in: profileIds } }), queryString)
-    .filter()
-    .sort()
-    .fields()
-    .pagination();
+  const features = new ApiFeatures(Submission.find({ studentProfileId: { $in: profileIds } }), queryString).filter().sort().fields().pagination();
 
-  return await features.mongooseQuery
-    .populate('task', 'title dueDate');
+  return await features.mongooseQuery.populate("task", "title dueDate");
 };
 
 const getMySubmissionService = async (userData, submissionId) => {
@@ -485,6 +492,10 @@ const getTasksDueDateBucketsService = async (studentProfileId, currentUser = nul
 const uploadSubmissionFilesService = async (submissionId, files, userData) => {
   const submission = await Submission.findById(submissionId);
   if (!submission) throw new AppErrorHelper("Submission not found!", 404);
+  if (userData.role === "parent") {
+    throw new AppErrorHelper("Only the student or assigned staff can upload files", 403);
+  }
+  await assertCanAccessStudent(userData, submission.studentProfileId);
 
   // Students can only upload to their own submission
   if (userData.role === "student") {
@@ -506,8 +517,8 @@ const uploadSubmissionFilesService = async (submissionId, files, userData) => {
         publicId: result.publicId,
         mimeType: file.mimetype,
         sizeBytes: file.size,
-      }))
-    )
+      })),
+    ),
   );
 
   submission.fileAttachments.push(...uploaded);
@@ -534,6 +545,10 @@ const uploadSubmissionFilesService = async (submissionId, files, userData) => {
 const deleteSubmissionFileService = async (submissionId, publicId, userData) => {
   const submission = await Submission.findById(submissionId);
   if (!submission) throw new AppErrorHelper("Submission not found!", 404);
+  if (userData.role === "parent") {
+    throw new AppErrorHelper("Only the student or assigned staff can remove files", 403);
+  }
+  await assertCanAccessStudent(userData, submission.studentProfileId);
 
   // Students can only delete files from their own submission
   if (userData.role === "student") {

@@ -43,7 +43,7 @@ const getAllSessionReviewsController = CatchAsync(async (req, res, next) => {
 });
 
 const getSessionReviewsByStudentController = CatchAsync(async (req, res, next) => {
-  const docs = (await getSessionReviewsByStudentService(req.params.id, req.query)) || [];
+  const docs = (await getSessionReviewsByStudentService(req.params.id, req.query, req.user)) || [];
 
   res.status(200).json({
     status: "success",
@@ -55,7 +55,7 @@ const getSessionReviewsByStudentController = CatchAsync(async (req, res, next) =
 });
 
 const getSessionReviewsByInstructorController = CatchAsync(async (req, res, next) => {
-  const docs = (await getSessionReviewsByInstructorService(req.params.id, req.query)) || [];
+  const docs = (await getSessionReviewsByInstructorService(req.params.id, req.query, req.user)) || [];
 
   res.status(200).json({
     status: "success",
@@ -67,7 +67,7 @@ const getSessionReviewsByInstructorController = CatchAsync(async (req, res, next
 });
 
 const getSessionReviewsBySessionController = CatchAsync(async (req, res, next) => {
-  const docs = (await getSessionReviewsBySessionService(req.params.id, req.query)) || [];
+  const docs = (await getSessionReviewsBySessionService(req.params.id, req.query, req.user)) || [];
 
   res.status(200).json({
     status: "success",
@@ -117,7 +117,7 @@ const getMySessionReviewStatsController = CatchAsync(async (req, res, next) => {
 });
 
 const updateSessionReviewByIdController = CatchAsync(async (req, res, next) => {
-  const review = await updateSessionReviewByIdService(req.params.id, req.body);
+  const review = await updateSessionReviewByIdService(req.params.id, req.body, req.user);
 
   if (!review) {
     return next(new AppErrorHelper("No document found!", 404));
@@ -132,7 +132,7 @@ const updateSessionReviewByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const deleteSessionReviewByIdController = CatchAsync(async (req, res, next) => {
-  const review = await deleteSessionReviewByIdService(req.params.id);
+  const review = await deleteSessionReviewByIdService(req.params.id, req.user);
 
   if (!review) {
     return next(new AppErrorHelper("No document found!", 404));
@@ -144,7 +144,7 @@ const deleteSessionReviewByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const getStudentReviewStatsController = CatchAsync(async (req, res, next) => {
-  const stats = await getStudentReviewStatsService(req.params.id);
+  const stats = await getStudentReviewStatsService(req.params.id, req.user);
 
   if (!stats || Object.keys(stats).length === 0) {
     return next(new AppErrorHelper("No stats found!", 404));

@@ -118,23 +118,23 @@ const adminUnlinkParentController = CatchAsync(async (req, res, next) => {
 
 const adminLinkInstructorController = CatchAsync(async (req, res, next) => {
   const { studentUserId, instructorUserId } = req.body;
-  const profile = await adminForceLinkInstructorService(studentUserId, instructorUserId);
+  const result = await adminForceLinkInstructorService(studentUserId, instructorUserId, req.user);
 
   res.status(200).json({
     status: "success",
     message: "Instructor successfully assigned to student!",
-    data: profile,
+    data: result,
   });
 });
 
 const adminUnlinkInstructorController = CatchAsync(async (req, res, next) => {
   const { studentUserId, instructorUserId } = req.body;
-  const profile = await adminForceUnlinkInstructorService(studentUserId, instructorUserId);
+  const assignment = await adminForceUnlinkInstructorService(studentUserId, instructorUserId, req.user);
 
   res.status(200).json({
     status: "success",
     message: "Instructor successfully unassigned from student!",
-    data: profile,
+    data: assignment,
   });
 });
 
@@ -150,7 +150,7 @@ const getMyStudentProfileByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const getAllStudentProfileController = CatchAsync(async (req, res, next) => {
-  const profiles = (await getAllStudentProfilesService(req.query)) || [];
+  const profiles = (await getAllStudentProfilesService(req.query, req.user)) || [];
 
   res.status(200).json({
     status: "success",
@@ -221,7 +221,10 @@ const getStudentTranscriptController = CatchAsync(async (req, res, next) => {
   // ─── Header ───────────────────────────────────────────────────────────────
   doc.fontSize(22).font("Helvetica-Bold").text("Student Transcript", { align: "center" });
   doc.moveDown(0.5);
-  doc.fontSize(10).font("Helvetica").fillColor("#666")
+  doc
+    .fontSize(10)
+    .font("Helvetica")
+    .fillColor("#666")
     .text(`Generated: ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" })}`, { align: "center" });
   doc.moveDown(1);
 
@@ -258,7 +261,9 @@ const getStudentTranscriptController = CatchAsync(async (req, res, next) => {
     exams.forEach((e) => {
       const pct = e.totalMark ? Math.round((e.score / e.totalMark) * 100) : 0;
       const passed = e.score >= e.passingMark ? "✓ Pass" : "✗ Fail";
-      doc.fontSize(10).font("Helvetica")
+      doc
+        .fontSize(10)
+        .font("Helvetica")
         .text(`${e.title} — ${e.score}/${e.totalMark} (${pct}%) ${passed}   [${new Date(e.date).toLocaleDateString("en-GB")}]`);
     });
   }

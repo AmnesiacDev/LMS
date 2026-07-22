@@ -1,8 +1,8 @@
 import Message from "../Models/Message.js";
-import User from "../Models/user.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import { createNotificationService } from "./NotificationService.js";
 import mongoose from "mongoose";
+import { assertUsersCanMessage } from "./MessagingAuthorizationService.js";
 
 // 1. Send a new message
 const sendMessageService = async (senderId, receiverId, content) => {
@@ -10,22 +10,13 @@ const sendMessageService = async (senderId, receiverId, content) => {
     throw new AppErrorHelper("Message content cannot be empty!", 400);
   }
 
-  if (senderId.toString() === receiverId.toString()) {
-    throw new AppErrorHelper("You cannot send a message to yourself!", 400);
-  }
-
-  const receiver = await User.findById(receiverId);
-  if (!receiver || !receiver.isActive) {
-    throw new AppErrorHelper("Receiver not found or inactive!", 404);
-  }
+  const { firstUser: senderUser } = await assertUsersCanMessage(senderId, receiverId);
 
   const message = await Message.create({
     sender: senderId,
     receiver: receiverId,
     content: content.trim(),
   });
-
-  const senderUser = await User.findById(senderId);
 
   // Automatically create a notification for the receiver
   await createNotificationService({
@@ -42,10 +33,7 @@ const sendMessageService = async (senderId, receiverId, content) => {
 
 // 2. Get conversation between two users
 const getConversationService = async (userId, otherUserId) => {
-  const otherUser = await User.findById(otherUserId);
-  if (!otherUser) {
-    throw new AppErrorHelper("User not found!", 404);
-  }
+  await assertUsersCanMessage(userId, otherUserId);
 
   const messages = await Message.find({
     $or: [
@@ -61,10 +49,8 @@ const getConversationService = async (userId, otherUserId) => {
 
 // 3. Mark messages as read
 const markMessagesAsReadService = async (userId, senderId) => {
-  const result = await Message.updateMany(
-    { sender: senderId, receiver: userId, isRead: false },
-    { isRead: true }
-  );
+  await assertUsersCanMessage(userId, senderId);
+  const result = await Message.updateMany({ sender: senderId, receiver: userId, isRead: false }, { isRead: true });
   return result;
 };
 
@@ -74,10 +60,7 @@ const getConversationsListService = async (userId) => {
   const conversations = await Message.aggregate([
     {
       $match: {
-        $or: [
-          { sender: new mongoose.Types.ObjectId(userId) },
-          { receiver: new mongoose.Types.ObjectId(userId) },
-        ],
+        $or: [{ sender: new mongoose.Types.ObjectId(userId) }, { receiver: new mongoose.Types.ObjectId(userId) }],
       },
     },
     {
@@ -86,21 +69,14 @@ const getConversationsListService = async (userId) => {
     {
       $group: {
         _id: {
-          $cond: [
-            { $eq: ["$sender", new mongoose.Types.ObjectId(userId)] },
-            "$receiver",
-            "$sender",
-          ],
+          $cond: [{ $eq: ["$sender", new mongoose.Types.ObjectId(userId)] }, "$receiver", "$sender"],
         },
         latestMessage: { $first: "$$ROOT" },
         unreadCount: {
           $sum: {
             $cond: [
               {
-                $and: [
-                  { $eq: ["$receiver", new mongoose.Types.ObjectId(userId)] },
-                  { $eq: ["$isRead", false] },
-                ],
+                $and: [{ $eq: ["$receiver", new mongoose.Types.ObjectId(userId)] }, { $eq: ["$isRead", false] }],
               },
               1,
               0,
@@ -143,9 +119,4 @@ const getConversationsListService = async (userId) => {
   return conversations;
 };
 
-export {
-  sendMessageService,
-  getConversationService,
-  markMessagesAsReadService,
-  getConversationsListService,
-};
+export { sendMessageService, getConversationService, markMessagesAsReadService, getConversationsListService };

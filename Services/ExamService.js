@@ -4,13 +4,19 @@ import Exam from "../Models/exam.js";
 import StudentProfile from "../Models/studentProfile.js";
 import { notifyStudentAndParents } from "./NotificationHelpers.js";
 import mongoose from "mongoose";
+import { assertInstructorAssignedToProfile, getAssignedStudentProfilesService } from "./StudentInstructorAssignmentService.js";
+
+const assertCanAccessExamProfile = async (currentUser, studentProfileId) => {
+  if (currentUser?.role === "admin") return;
+  if (currentUser?.role !== "instructor") {
+    throw new AppErrorHelper("Not allowed", 403);
+  }
+  await assertInstructorAssignedToProfile(currentUser._id, studentProfileId);
+};
 
 // Shared exam-result notification to student + parents (best-effort)
 const notifyExamResult = (studentProfileId, exam, sender) => {
-  const scoreText =
-    exam.score !== undefined && exam.score !== null
-      ? ` — score ${exam.score}${exam.totalMark ? `/${exam.totalMark}` : ""}`
-      : "";
+  const scoreText = exam.score !== undefined && exam.score !== null ? ` — score ${exam.score}${exam.totalMark ? `/${exam.totalMark}` : ""}` : "";
   notifyStudentAndParents(studentProfileId, {
     type: "exam_result",
     link: "/exams",
@@ -22,7 +28,7 @@ const notifyExamResult = (studentProfileId, exam, sender) => {
   }).catch(() => {});
 };
 
-const createExamService = async (data) => {
+const createExamService = async (data, currentUser) => {
   const { title, description, totalMark, passingMark, score, date, createdBy, studentProfileId, studentId } = { ...data };
 
   let resolvedStudentProfileId = studentProfileId;
@@ -43,6 +49,7 @@ const createExamService = async (data) => {
   if (!studentProfile) {
     throw new AppErrorHelper("Student profile not found!", 404);
   }
+  await assertCanAccessExamProfile(currentUser, studentProfile._id);
 
   const exam = await Exam.create({
     title,
@@ -118,26 +125,37 @@ const getMyExamsService = async (user, queryString) => {
   return await features.mongooseQuery;
 };
 
-const getAllExamsService = async (queryString = {}) => {
-  const features = new ApiFeatures(Exam.find({}), queryString).filter().sort().fields().pagination();
+const getAllExamsService = async (queryString = {}, currentUser) => {
+  let filter = {};
+  if (currentUser?.role === "instructor") {
+    const profiles = await getAssignedStudentProfilesService(currentUser);
+    filter = { studentProfileId: { $in: profiles.map((profile) => profile._id) } };
+  }
+  const features = new ApiFeatures(Exam.find(filter), queryString).filter().sort().fields().pagination();
   return features.mongooseQuery;
 };
 
-const getExamByIdService = async (examId) => {
+const getExamByIdService = async (examId, currentUser) => {
   const exam = await Exam.findById(examId);
 
   if (!exam) {
     throw new AppErrorHelper("Exam not found ! ", 404);
   }
+  await assertCanAccessExamProfile(currentUser, exam.studentProfileId);
   return exam;
 };
 
-const getExamsByStudentService = async (studentProfileId, queryString = {}) => {
+const getExamsByStudentService = async (studentProfileId, queryString = {}, currentUser) => {
+  await assertCanAccessExamProfile(currentUser, studentProfileId);
   const features = new ApiFeatures(Exam.find({ studentProfileId }), queryString).sort().fields().pagination();
   return await features.mongooseQuery;
 };
 
-const updateExamService = async (examId, data) => {
+const updateExamService = async (examId, data, currentUser) => {
+  const existingExam = await Exam.findById(examId);
+  if (!existingExam) throw new AppErrorHelper("Exam not found ! ", 404);
+  await assertCanAccessExamProfile(currentUser, existingExam.studentProfileId);
+
   const options = {
     new: true,
     runValidators: true,
@@ -163,6 +181,11 @@ const updateExamService = async (examId, data) => {
     delete updateData.student;
   }
 
+  if (updateData.studentProfileId) {
+    await assertCanAccessExamProfile(currentUser, updateData.studentProfileId);
+  }
+  delete updateData.createdBy;
+
   const exam = await Exam.findByIdAndUpdate(examId, updateData, options);
 
   if (!exam) {
@@ -177,7 +200,11 @@ const updateExamService = async (examId, data) => {
   return exam;
 };
 
-const deleteExamService = async (examId) => {
+const deleteExamService = async (examId, currentUser) => {
+  const existingExam = await Exam.findById(examId);
+  if (!existingExam) throw new AppErrorHelper("Exam not found ! ", 404);
+  await assertCanAccessExamProfile(currentUser, existingExam.studentProfileId);
+
   const deletedExam = await Exam.findByIdAndDelete(examId);
 
   if (!deletedExam) {
@@ -187,13 +214,4 @@ const deleteExamService = async (examId) => {
   return deletedExam;
 };
 
-export {
-  createExamService,
-  getMyExamsService,
-  getMyExamByIdService,
-  getAllExamsService,
-  getExamByIdService,
-  getExamsByStudentService,
-  updateExamService,
-  deleteExamService,
-};
+export { createExamService, getMyExamsService, getMyExamByIdService, getAllExamsService, getExamByIdService, getExamsByStudentService, updateExamService, deleteExamService };

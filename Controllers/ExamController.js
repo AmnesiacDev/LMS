@@ -1,26 +1,17 @@
 import CatchAsync from "../Utilities/CatchAsync.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
-import {
-  createExamService,
-  getMyExamsService,
-  getMyExamByIdService,
-  getAllExamsService,
-  getExamByIdService,
-  getExamsByStudentService,
-  updateExamService,
-  deleteExamService,
-} from "../Services/ExamService.js";
+import { createExamService, getMyExamsService, getMyExamByIdService, getAllExamsService, getExamByIdService, getExamsByStudentService, updateExamService, deleteExamService } from "../Services/ExamService.js";
 
 const createExamController = CatchAsync(async (req, res, next) => {
   if (!req.body || Object.keys(req.body).length === 0) {
     return next(new AppErrorHelper("Data is missing!", 400));
   }
-  
+
   if (req.user && req.user.role !== "student" && req.user.role !== "parent") {
     req.body.createdBy = req.user._id;
   }
 
-  const exam = await createExamService(req.body);
+  const exam = await createExamService(req.body, req.user);
 
   res.status(201).json({
     status: "success",
@@ -48,7 +39,7 @@ const getMyExamByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const getAllExamsController = CatchAsync(async (req, res, next) => {
-  const exams = await getAllExamsService(req.query);
+  const exams = await getAllExamsService(req.query, req.user);
 
   res.status(200).json({
     status: "success",
@@ -58,7 +49,7 @@ const getAllExamsController = CatchAsync(async (req, res, next) => {
 });
 
 const getExamByIdController = CatchAsync(async (req, res, next) => {
-  const exam = await getExamByIdService(req.params.id);
+  const exam = await getExamByIdService(req.params.id, req.user);
 
   res.status(200).json({
     status: "success",
@@ -67,7 +58,7 @@ const getExamByIdController = CatchAsync(async (req, res, next) => {
 });
 
 const getExamsByStudentController = CatchAsync(async (req, res, next) => {
-  const exams = await getExamsByStudentService(req.params.id, req.query);
+  const exams = await getExamsByStudentService(req.params.id, req.query, req.user);
 
   res.status(200).json({
     status: "success",
@@ -81,7 +72,7 @@ const updateExamController = CatchAsync(async (req, res, next) => {
     return next(new AppErrorHelper("Data is missing!", 400));
   }
 
-  const exam = await updateExamService(req.params.id, req.body);
+  const exam = await updateExamService(req.params.id, req.body, req.user);
 
   res.status(200).json({
     status: "success",
@@ -90,7 +81,7 @@ const updateExamController = CatchAsync(async (req, res, next) => {
 });
 
 const deleteExamController = CatchAsync(async (req, res, next) => {
-  await deleteExamService(req.params.id);
+  await deleteExamService(req.params.id, req.user);
 
   res.status(204).json({
     status: "success",
@@ -98,13 +89,4 @@ const deleteExamController = CatchAsync(async (req, res, next) => {
   });
 });
 
-export {
-  createExamController,
-  getMyExamsController,
-  getMyExamByIdController,
-  getAllExamsController,
-  getExamByIdController,
-  getExamsByStudentController,
-  updateExamController,
-  deleteExamController,
-};
+export { createExamController, getMyExamsController, getMyExamByIdController, getAllExamsController, getExamByIdController, getExamsByStudentController, updateExamController, deleteExamController };

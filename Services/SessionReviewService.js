@@ -6,6 +6,21 @@ import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
 import { notifyStudentAndParents } from "./NotificationHelpers.js";
 import mongoose from "mongoose";
+import { assertInstructorAssignedToProfile, getAssignedStudentProfilesService } from "./StudentInstructorAssignmentService.js";
+
+const documentId = (value) => value?._id || value;
+
+const assertCanManageReview = async (currentUser, reviewLike) => {
+  if (currentUser?.role === "admin") return;
+  if (currentUser?.role !== "instructor") {
+    throw new AppErrorHelper("Not allowed", 403);
+  }
+  const instructorId = reviewLike.Instructor || reviewLike.instructorId;
+  if (documentId(instructorId).toString() !== currentUser._id.toString()) {
+    throw new AppErrorHelper("Review not found", 404);
+  }
+  await assertInstructorAssignedToProfile(currentUser._id, documentId(reviewLike.studentProfileId));
+};
 
 const createSessionReviewService = async (data, currentUser = null) => {
   if (!data) {
@@ -16,8 +31,7 @@ const createSessionReviewService = async (data, currentUser = null) => {
   const resolvedSessionId = data.sessionId || data.session;
   const { studentProfileId, studentId, notes, Behavior, underStanding, participation, coding } = data;
   // Default instructorId to the logged-in instructor when not explicitly provided
-  const resolvedInstructorId = data.instructorId
-    || (currentUser?.role === "instructor" ? currentUser._id : null);
+  const resolvedInstructorId = data.instructorId || (currentUser?.role === "instructor" ? currentUser._id : null);
 
   if (!resolvedSessionId) {
     throw new AppErrorHelper("sessionId (or session) is required!", 400);
@@ -38,6 +52,9 @@ const createSessionReviewService = async (data, currentUser = null) => {
 
   if (instructor.role !== "instructor") {
     throw new AppErrorHelper("Wrong assignment of roles!", 400);
+  }
+  if (currentUser?.role === "instructor" && instructor._id.toString() !== currentUser._id.toString()) {
+    throw new AppErrorHelper("Instructors can only create their own reviews", 403);
   }
 
   let resolvedStudentProfileId = studentProfileId;
@@ -66,6 +83,10 @@ const createSessionReviewService = async (data, currentUser = null) => {
   if (!session.studentProfileId || session.studentProfileId.toString() !== resolvedStudentProfileId.toString()) {
     throw new AppErrorHelper("This session does not belong to this student profile", 400);
   }
+  if (session.instructorId.toString() !== instructor._id.toString()) {
+    throw new AppErrorHelper("This session does not belong to this instructor", 403);
+  }
+  await assertInstructorAssignedToProfile(instructor._id, studentProfile._id);
 
   if (!session.StudentAttended) {
     throw new AppErrorHelper("Cannot review a session that student did not attend", 400);
@@ -105,7 +126,11 @@ const getAllSessionReviewsService = async (queryString, user = null) => {
   let filter = {};
 
   if (user?.role === "instructor") {
-    filter = { $and: [{ Instructor: user._id }] };
+    const profiles = await getAssignedStudentProfilesService(user);
+    filter = {
+      Instructor: user._id,
+      studentProfileId: { $in: profiles.map((profile) => profile._id) },
+    };
   }
 
   const mongooseQuery = SessionReview.find(filter)
@@ -121,11 +146,14 @@ const getAllSessionReviewsService = async (queryString, user = null) => {
   return await features.mongooseQuery;
 };
 
-const getSessionReviewsByStudentService = async (studentProfileId, queryString = {}) => {
+const getSessionReviewsByStudentService = async (studentProfileId, queryString = {}, currentUser) => {
+  if (currentUser?.role === "instructor") {
+    await assertInstructorAssignedToProfile(currentUser._id, studentProfileId);
+  }
   const mongooseQuery = SessionReview.find({ studentProfileId })
     .populate({
       path: "studentProfileId",
-      populate: { path: "user", select: "FullName Email" }
+      populate: { path: "user", select: "FullName Email" },
     })
     .populate({ path: "session", select: "title date" })
     .populate({ path: "Instructor", select: "FullName" });
@@ -135,24 +163,39 @@ const getSessionReviewsByStudentService = async (studentProfileId, queryString =
   return await features.mongooseQuery;
 };
 
-const getSessionReviewsByInstructorService = async (instructorId, queryString = {}) => {
-  const features = new ApiFeatures(SessionReview.find({ Instructor: instructorId }), queryString).sort().fields().pagination();
+const getSessionReviewsByInstructorService = async (instructorId, queryString = {}, currentUser) => {
+  let filter = { Instructor: instructorId };
+  if (currentUser?.role === "instructor") {
+    if (currentUser._id.toString() !== instructorId.toString()) {
+      throw new AppErrorHelper("Not allowed", 403);
+    }
+    const profiles = await getAssignedStudentProfilesService(currentUser);
+    filter = {
+      ...filter,
+      studentProfileId: { $in: profiles.map((profile) => profile._id) },
+    };
+  }
+  const features = new ApiFeatures(SessionReview.find(filter), queryString).sort().fields().pagination();
 
   return await features.mongooseQuery;
 };
 
-const getSessionReviewsBySessionService = async (sessionId, queryString = {}) => {
+const getSessionReviewsBySessionService = async (sessionId, queryString = {}, currentUser) => {
+  const session = await Session.findById(sessionId);
+  if (!session) throw new AppErrorHelper("Session not found!", 404);
+  await assertCanManageReview(currentUser, session);
   const features = new ApiFeatures(SessionReview.find({ session: sessionId }), queryString).sort().fields().pagination();
 
   return await features.mongooseQuery;
 };
 
-const updateSessionReviewByIdService = async (reviewId, data) => {
+const updateSessionReviewByIdService = async (reviewId, data, currentUser) => {
   const review = await SessionReview.findById(reviewId);
 
   if (!review) {
     throw new AppErrorHelper("Review not found!", 404);
   }
+  await assertCanManageReview(currentUser, review);
 
   if (data.Behavior !== undefined) review.Behavior = data.Behavior;
   if (data.underStanding !== undefined) review.underStanding = data.underStanding;
@@ -163,7 +206,11 @@ const updateSessionReviewByIdService = async (reviewId, data) => {
   return await review.save();
 };
 
-const deleteSessionReviewByIdService = async (reviewId) => {
+const deleteSessionReviewByIdService = async (reviewId, currentUser) => {
+  const existingReview = await SessionReview.findById(reviewId);
+  if (!existingReview) throw new AppErrorHelper("Review not found!", 404);
+  await assertCanManageReview(currentUser, existingReview);
+
   const review = await SessionReview.findByIdAndDelete(reviewId);
 
   if (!review) {
@@ -261,17 +308,22 @@ const getMySessionReviewStatsService = async (userData) => {
     },
   ]);
 
-  return stats[0] || {
-    avgOverall: 0,
-    avgBehavior: 0,
-    avgUnderstanding: 0,
-    avgParticipation: 0,
-    avgCoding: 0,
-    Count: 0,
-  };
+  return (
+    stats[0] || {
+      avgOverall: 0,
+      avgBehavior: 0,
+      avgUnderstanding: 0,
+      avgParticipation: 0,
+      avgCoding: 0,
+      Count: 0,
+    }
+  );
 };
 
-const getStudentReviewStatsService = async (studentProfileId) => {
+const getStudentReviewStatsService = async (studentProfileId, currentUser) => {
+  if (currentUser?.role === "instructor") {
+    await assertInstructorAssignedToProfile(currentUser._id, studentProfileId);
+  }
   const stats = await SessionReview.aggregate([
     {
       $match: { studentProfileId: new mongoose.Types.ObjectId(studentProfileId) },
@@ -289,7 +341,7 @@ const getStudentReviewStatsService = async (studentProfileId) => {
     },
   ]);
 
-  return stats[0] || {}
+  return stats[0] || {};
 };
 
 export {

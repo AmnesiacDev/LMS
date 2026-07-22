@@ -11,12 +11,7 @@ process.env.JWT_REFRESH_EXPIRES_IN = "7d";
 process.env.SALT_ROUNDS = "4";
 process.env.CLIENT_URL = "http://localhost:5173";
 
-const [{ default: app }, { default: User }, { default: StudentProfile }, { default: Session }] = await Promise.all([
-  import("../App.js"),
-  import("../Models/user.js"),
-  import("../Models/studentProfile.js"),
-  import("../Models/Session.js"),
-]);
+const [{ default: app }, { default: User }, { default: StudentProfile }, { default: Session }] = await Promise.all([import("../App.js"), import("../Models/user.js"), import("../Models/studentProfile.js"), import("../Models/Session.js")]);
 
 let mongod;
 let actorSequence = 0;
@@ -75,19 +70,32 @@ afterEach(async () => {
 
 describe("POST /api/v1/session/bulk", () => {
   test("allows instructor to create sessions for multiple students at once", async () => {
+    const admin = await createActor("admin");
     const instructor = await createActor("instructor");
     const s1 = await createStudentWithProfile();
     const s2 = await createStudentWithProfile();
 
+    for (const student of [s1, s2]) {
+      await auth(
+        request(app).post("/api/v1/student-instructor-assignments").send({
+          studentUserId: student._id.toString(),
+          instructorUserId: instructor._id.toString(),
+        }),
+        admin,
+      ).expect(201);
+    }
+
     const futureDate = new Date(Date.now() + 86400000).toISOString();
 
     const res = await auth(
-      request(app).post("/api/v1/session/bulk").send({
-        title: "Bulk Cohort Workshop",
-        description: "Group session on advanced JS",
-        studentProfileIds: [s1.profileId.toString(), s2.profileId.toString()],
-        date: futureDate,
-      }),
+      request(app)
+        .post("/api/v1/session/bulk")
+        .send({
+          title: "Bulk Cohort Workshop",
+          description: "Group session on advanced JS",
+          studentProfileIds: [s1.profileId.toString(), s2.profileId.toString()],
+          date: futureDate,
+        }),
       instructor,
     );
 
@@ -123,12 +131,14 @@ describe("POST /api/v1/session/bulk", () => {
     const futureDate = new Date(Date.now() + 86400000).toISOString();
 
     const res = await auth(
-      request(app).post("/api/v1/session/bulk").send({
-        title: "Student Attempt",
-        description: "Not allowed",
-        studentProfileIds: [student.profileId.toString()],
-        date: futureDate,
-      }),
+      request(app)
+        .post("/api/v1/session/bulk")
+        .send({
+          title: "Student Attempt",
+          description: "Not allowed",
+          studentProfileIds: [student.profileId.toString()],
+          date: futureDate,
+        }),
       student,
     );
 

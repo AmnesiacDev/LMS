@@ -5,6 +5,8 @@ import Session from "../Models/Session.js";
 import Notification from "../Models/Notification.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
+import { assignInstructorService, isInstructorAssignedToProfile, unassignInstructorService } from "./StudentInstructorAssignmentService.js";
+import { syncLearningTeamChannelsForProfile } from "./ChannelService.js";
 
 // Returns true when `currentUser` is allowed to read the given student profile.
 // - admin       → always
@@ -28,17 +30,7 @@ const canAccessStudentProfile = async (currentUser, profile) => {
   }
 
   if (currentUser.role === "instructor") {
-    const isAssigned = (profile.instructors || []).some((i) => {
-      const iid = i?._id || i;
-      return iid?.toString() === currentUser._id.toString();
-    });
-    if (isAssigned) return true;
-
-    const exists = await Session.exists({
-      instructorId: currentUser._id,
-      studentProfileId: profile._id,
-    });
-    return Boolean(exists);
+    return isInstructorAssignedToProfile(currentUser._id, profile._id);
   }
 
   return false;
@@ -52,17 +44,11 @@ const containsUserReference = (references, userId) =>
 
 const throwIfParentLinkConflict = (profile, parentUser, studentUser) => {
   if (containsUserReference(profile.parents, parentUser._id)) {
-    throw new AppErrorHelper(
-      `Student "${studentUser.FullName || studentUser.UserName}" is already linked to your account!`,
-      409,
-    );
+    throw new AppErrorHelper(`Student "${studentUser.FullName || studentUser.UserName}" is already linked to your account!`, 409);
   }
 
   if (containsUserReference(profile.pendingParentRequests, parentUser._id)) {
-    throw new AppErrorHelper(
-      `A link request for "${studentUser.FullName || studentUser.UserName}" is already pending student approval!`,
-      409,
-    );
+    throw new AppErrorHelper(`A link request for "${studentUser.FullName || studentUser.UserName}" is already pending student approval!`, 409);
   }
 };
 
@@ -82,9 +68,7 @@ const linkChildToParentService = async (childIdentifier, parentUser) => {
     throw new AppErrorHelper("Parent user not found", 404);
   }
 
-  const query = childIdentifier.includes("@")
-    ? { Email: childIdentifier.trim().toLowerCase(), role: "student" }
-    : { UserName: childIdentifier.trim(), role: "student" };
+  const query = childIdentifier.includes("@") ? { Email: childIdentifier.trim().toLowerCase(), role: "student" } : { UserName: childIdentifier.trim(), role: "student" };
 
   const studentUser = await User.findOne(query);
   if (!studentUser) {
@@ -186,6 +170,8 @@ const acceptParentRequestService = async (parentUserId, studentUser) => {
     throw new AppErrorHelper("Pending link request not found", 404);
   }
 
+  await syncLearningTeamChannelsForProfile(profile._id);
+
   try {
     await Notification.create({
       recipient: parentUser._id,
@@ -207,11 +193,7 @@ const rejectParentRequestService = async (parentUserId, studentUser) => {
     throw new AppErrorHelper("Invalid parent ID", 400);
   }
 
-  let profile = await StudentProfile.findOneAndUpdate(
-    { user: studentUser._id, pendingParentRequests: parentUserId },
-    { $pull: { pendingParentRequests: parentUserId } },
-    { returnDocument: "after", runValidators: true },
-  );
+  let profile = await StudentProfile.findOneAndUpdate({ user: studentUser._id, pendingParentRequests: parentUserId }, { $pull: { pendingParentRequests: parentUserId } }, { returnDocument: "after", runValidators: true });
 
   if (!profile) {
     profile = await StudentProfile.findOne({ user: studentUser._id });
@@ -226,7 +208,10 @@ const linkChildrenBulkService = async (identifiersInput, parentUser) => {
   if (Array.isArray(identifiersInput)) {
     list = identifiersInput;
   } else if (typeof identifiersInput === "string") {
-    list = identifiersInput.split(/[\n,;\s]+/).map((s) => s.trim()).filter(Boolean);
+    list = identifiersInput
+      .split(/[\n,;\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
 
   // Deduplicate case-insensitively while preserving the first spelling.
@@ -266,10 +251,7 @@ const linkChildrenBulkService = async (identifiersInput, parentUser) => {
 };
 
 const adminForceLinkParentService = async (studentUserId, parentUserId) => {
-  const [studentUser, parentUser] = await Promise.all([
-    User.findOne({ _id: studentUserId, role: "student" }),
-    User.findOne({ _id: parentUserId, role: "parent" }),
-  ]);
+  const [studentUser, parentUser] = await Promise.all([User.findOne({ _id: studentUserId, role: "student" }), User.findOne({ _id: parentUserId, role: "parent" })]);
 
   if (!studentUser) throw new AppErrorHelper("Student user not found!", 404);
   if (!parentUser) throw new AppErrorHelper("Parent user not found!", 404);
@@ -287,81 +269,37 @@ const adminForceLinkParentService = async (studentUserId, parentUserId) => {
     });
 
     if (isAlreadyLinked) {
-      throw new AppErrorHelper(
-        `Student "${studentUser.FullName || studentUser.UserName}" is already linked to this parent!`,
-        409
-      );
+      throw new AppErrorHelper(`Student "${studentUser.FullName || studentUser.UserName}" is already linked to this parent!`, 409);
     }
 
-    profile = await StudentProfile.findByIdAndUpdate(
-      profile._id,
-      { $addToSet: { parents: parentUser._id } },
-      { new: true, runValidators: true }
-    );
+    profile = await StudentProfile.findByIdAndUpdate(profile._id, { $addToSet: { parents: parentUser._id } }, { new: true, runValidators: true });
   }
 
+  await syncLearningTeamChannelsForProfile(profile._id);
   return profile;
 };
 
 const adminForceUnlinkParentService = async (studentUserId, parentUserId) => {
-  const profile = await StudentProfile.findOneAndUpdate(
-    { user: studentUserId },
-    { $pull: { parents: parentUserId } },
-    { new: true }
-  );
+  const profile = await StudentProfile.findOneAndUpdate({ user: studentUserId }, { $pull: { parents: parentUserId } }, { new: true });
 
   if (!profile) throw new AppErrorHelper("Student profile not found!", 404);
+  await syncLearningTeamChannelsForProfile(profile._id);
   return profile;
 };
 
-const adminForceLinkInstructorService = async (studentUserId, instructorUserId) => {
-  const [studentUser, instructorUser] = await Promise.all([
-    User.findOne({ _id: studentUserId, role: "student" }),
-    User.findOne({ _id: instructorUserId, role: "instructor" }),
-  ]);
+const adminForceLinkInstructorService = async (studentUserId, instructorUserId, adminUser) =>
+  assignInstructorService({
+    studentUserId,
+    instructorUserId,
+    assignedBy: adminUser,
+  });
 
-  if (!studentUser) throw new AppErrorHelper("Student user not found!", 404);
-  if (!instructorUser) throw new AppErrorHelper("Instructor user not found!", 404);
-
-  let profile = await StudentProfile.findOne({ user: studentUser._id });
-  if (!profile) {
-    profile = await StudentProfile.create({
-      user: studentUser._id,
-      instructors: [instructorUser._id],
-    });
-  } else {
-    const isAlreadyAssigned = (profile.instructors || []).some((i) => {
-      const iid = (i?._id || i)?.toString();
-      return iid === instructorUser._id.toString();
-    });
-
-    if (isAlreadyAssigned) {
-      throw new AppErrorHelper(
-        `Student "${studentUser.FullName || studentUser.UserName}" is already assigned to this instructor!`,
-        409
-      );
-    }
-
-    profile = await StudentProfile.findByIdAndUpdate(
-      profile._id,
-      { $addToSet: { instructors: instructorUser._id } },
-      { new: true, runValidators: true }
-    );
-  }
-
-  return profile;
-};
-
-const adminForceUnlinkInstructorService = async (studentUserId, instructorUserId) => {
-  const profile = await StudentProfile.findOneAndUpdate(
-    { user: studentUserId },
-    { $pull: { instructors: instructorUserId } },
-    { new: true }
-  );
-
-  if (!profile) throw new AppErrorHelper("Student profile not found!", 404);
-  return profile;
-};
+const adminForceUnlinkInstructorService = async (studentUserId, instructorUserId, adminUser) =>
+  unassignInstructorService({
+    studentUserId,
+    instructorUserId,
+    endedBy: adminUser,
+  });
 
 const createStudentProfileService = async (userId, profileData, currentUser) => {
   if (!userId || !profileData) {
@@ -464,6 +402,10 @@ const updateStudentProfileService = async (profileId, updateData, currentUser) =
     throw new AppErrorHelper("Student profile not found!", 404);
   }
 
+  if (safeUpdate.parents !== undefined) {
+    await syncLearningTeamChannelsForProfile(updated._id);
+  }
+
   return updated;
 };
 
@@ -524,8 +466,18 @@ const getMyStudentProfileService = async (user) => {
   }
 };
 
-const getAllStudentProfilesService = async (QueryString) => {
-  const features = new ApiFeatures(StudentProfile.find({}), QueryString).filter().sort().fields().pagination();
+const getAllStudentProfilesService = async (QueryString, currentUser) => {
+  let filter = {};
+  if (currentUser?.role === "instructor") {
+    const { default: StudentInstructorAssignment } = await import("../Models/StudentInstructorAssignment.js");
+    const profileIds = await StudentInstructorAssignment.distinct("studentProfileId", {
+      instructorId: currentUser._id,
+      status: "active",
+    });
+    filter = { _id: { $in: profileIds } };
+  }
+
+  const features = new ApiFeatures(StudentProfile.find(filter), QueryString).filter().sort().fields().pagination();
 
   return await features.mongooseQuery;
 };
@@ -536,11 +488,9 @@ const getAllStudentProfilesService = async (QueryString) => {
  * Called after any session create/update that touches StudentAttended.
  */
 const recalculateAttendanceStreakService = async (studentProfileId) => {
-  const sessions = await Session.find(
-    { studentProfileId, deletedAt: null, status: { $ne: "canceled" } },
-    { StudentAttended: 1, date: 1 },
-    { sort: { date: -1 } }
-  ).setOptions({ withDeleted: false }).lean();
+  const sessions = await Session.find({ studentProfileId, deletedAt: null, status: { $ne: "canceled" } }, { StudentAttended: 1, date: 1 }, { sort: { date: -1 } })
+    .setOptions({ withDeleted: false })
+    .lean();
 
   let streak = 0;
   for (const s of sessions) {
