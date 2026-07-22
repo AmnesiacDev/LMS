@@ -265,6 +265,7 @@ app.use((req, res, next) => {
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/user", userRouter);
 app.use("/api/v1/StudentProfile", StudentProfileRouter);
+app.use("/api/v1/studentprofile", StudentProfileRouter);
 app.use("/api/v1/session", SessionRouter);
 app.use("/api/v1/task", TaskRouter);
 app.use("/api/v1/submission", SubmissionRouter);
