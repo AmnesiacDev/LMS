@@ -9,6 +9,9 @@ import {
   getStudentTranscriptController,
   linkChildController,
   linkChildrenBulkController,
+  getPendingParentRequestsController,
+  acceptParentRequestController,
+  rejectParentRequestController,
   adminLinkParentController,
   adminUnlinkParentController,
   adminLinkInstructorController,
@@ -32,6 +35,10 @@ router.use(protectionController);
 
 router.post("/link-child", restrictedToController("parent", "admin"), validate(linkChildSchema), linkChildController);
 router.post("/link-children-bulk", restrictedToController("parent", "admin"), validate(linkChildrenBulkSchema), linkChildrenBulkController);
+
+router.get("/me/parent-requests", restrictedToController("student"), getPendingParentRequestsController);
+router.post("/me/parent-requests/:parentId/accept", restrictedToController("student"), acceptParentRequestController);
+router.post("/me/parent-requests/:parentId/reject", restrictedToController("student"), rejectParentRequestController);
 
 router.post("/admin/link-parent", restrictedToController("admin"), validate(adminLinkParentSchema), adminLinkParentController);
 router.post("/admin/unlink-parent", restrictedToController("admin"), validate(adminLinkParentSchema), adminUnlinkParentController);

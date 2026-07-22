@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import StudentProfile from "../Models/studentProfile.js";
 import User from "../Models/user.js";
 import Session from "../Models/Session.js";
+import Notification from "../Models/Notification.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
 import ApiFeatures from "../Utilities/ApiFeatures.js";
 
@@ -61,7 +62,7 @@ const linkChildToParentService = async (childIdentifier, parentUser) => {
   if (!profile) {
     profile = await StudentProfile.create({
       user: studentUser._id,
-      parents: [parentUser._id],
+      pendingParentRequests: [parentUser._id],
     });
   } else {
     const isAlreadyLinked = (profile.parents || []).some((p) => {
@@ -71,18 +72,110 @@ const linkChildToParentService = async (childIdentifier, parentUser) => {
 
     if (isAlreadyLinked) {
       throw new AppErrorHelper(
-        `Student "${studentUser.FullName || studentUser.UserName}" is already linked to this parent account!`,
+        `Student "${studentUser.FullName || studentUser.UserName}" is already linked to your account!`,
+        409
+      );
+    }
+
+    const isPending = (profile.pendingParentRequests || []).some((p) => {
+      const pid = (p?._id || p)?.toString();
+      return pid === parentUser._id.toString();
+    });
+
+    if (isPending) {
+      throw new AppErrorHelper(
+        `A link request for "${studentUser.FullName || studentUser.UserName}" is already pending student approval!`,
         409
       );
     }
 
     profile = await StudentProfile.findByIdAndUpdate(
       profile._id,
-      { $addToSet: { parents: parentUser._id } },
+      { $addToSet: { pendingParentRequests: parentUser._id } },
       { new: true, runValidators: true }
     );
   }
 
+  try {
+    await Notification.create({
+      recipient: studentUser._id,
+      sender: parentUser._id,
+      type: "system",
+      title: "Parent Link Request",
+      message: `Parent ${parentUser.FullName || parentUser.UserName} (${parentUser.Email}) sent you a link request.`,
+    });
+  } catch (e) {
+    // Ignore notification creation error if any
+  }
+
+  return profile;
+};
+
+const getPendingParentRequestsService = async (studentUser) => {
+  if (!studentUser || studentUser.role !== "student") {
+    throw new AppErrorHelper("Only student accounts can view pending parent requests", 403);
+  }
+
+  const profile = await StudentProfile.findOne({ user: studentUser._id });
+  if (!profile) return [];
+
+  return profile.pendingParentRequests || [];
+};
+
+const acceptParentRequestService = async (parentUserId, studentUser) => {
+  if (!studentUser || studentUser.role !== "student") {
+    throw new AppErrorHelper("Only student accounts can accept parent requests", 403);
+  }
+
+  const profile = await StudentProfile.findOne({ user: studentUser._id });
+  if (!profile) throw new AppErrorHelper("Student profile not found", 404);
+
+  const isPending = (profile.pendingParentRequests || []).some((p) => {
+    const pid = (p?._id || p)?.toString();
+    return pid === parentUserId.toString();
+  });
+
+  if (!isPending) {
+    throw new AppErrorHelper("Pending link request not found", 404);
+  }
+
+  profile.pendingParentRequests = (profile.pendingParentRequests || []).filter(
+    (p) => (p?._id || p)?.toString() !== parentUserId.toString()
+  );
+
+  const alreadyParents = (profile.parents || []).map((p) => (p?._id || p)?.toString());
+  if (!alreadyParents.includes(parentUserId.toString())) {
+    profile.parents.push(parentUserId);
+  }
+
+  await profile.save();
+
+  try {
+    await Notification.create({
+      recipient: parentUserId,
+      sender: studentUser._id,
+      type: "system",
+      title: "Link Request Accepted",
+      message: `Student ${studentUser.FullName || studentUser.UserName} accepted your link request!`,
+    });
+  } catch (e) {}
+
+  return profile;
+};
+
+const rejectParentRequestService = async (parentUserId, studentUser) => {
+  if (!studentUser || studentUser.role !== "student") {
+    throw new AppErrorHelper("Only student accounts can reject parent requests", 403);
+  }
+
+  const profile = await StudentProfile.findOne({ user: studentUser._id });
+  if (!profile) throw new AppErrorHelper("Student profile not found", 404);
+
+  profile.pendingParentRequests = (profile.pendingParentRequests || []).filter(
+    (p) => (p?._id || p)?.toString() !== parentUserId.toString()
+  );
+
+  await profile.save();
   return profile;
 };
 
@@ -428,6 +521,9 @@ export {
   canAccessStudentProfile,
   linkChildToParentService,
   linkChildrenBulkService,
+  getPendingParentRequestsService,
+  acceptParentRequestService,
+  rejectParentRequestService,
   adminForceLinkParentService,
   adminForceUnlinkParentService,
   adminForceLinkInstructorService,

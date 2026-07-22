@@ -11,6 +11,9 @@ import {
   canAccessStudentProfile,
   linkChildToParentService,
   linkChildrenBulkService,
+  getPendingParentRequestsService,
+  acceptParentRequestService,
+  rejectParentRequestService,
   adminForceLinkParentService,
   adminForceUnlinkParentService,
   adminForceLinkInstructorService,
@@ -43,7 +46,7 @@ const linkChildController = CatchAsync(async (req, res, next) => {
 
   res.status(200).json({
     status: "success",
-    message: "Child successfully linked!",
+    message: "Link request sent! Waiting for child approval.",
     data: profile,
   });
 });
@@ -54,8 +57,40 @@ const linkChildrenBulkController = CatchAsync(async (req, res, next) => {
 
   res.status(200).json({
     status: "success",
-    message: `Processed bulk linking: ${result.totalLinked} linked successfully, ${result.totalFailed} failed.`,
+    message: `Processed bulk link requests: ${result.totalLinked} sent, ${result.totalFailed} failed.`,
     data: result,
+  });
+});
+
+const getPendingParentRequestsController = CatchAsync(async (req, res, next) => {
+  const requests = await getPendingParentRequestsService(req.user);
+
+  res.status(200).json({
+    status: "success",
+    results: requests.length,
+    data: requests,
+  });
+});
+
+const acceptParentRequestController = CatchAsync(async (req, res, next) => {
+  const { parentId } = req.params;
+  const profile = await acceptParentRequestService(parentId, req.user);
+
+  res.status(200).json({
+    status: "success",
+    message: "Parent link request accepted!",
+    data: profile,
+  });
+});
+
+const rejectParentRequestController = CatchAsync(async (req, res, next) => {
+  const { parentId } = req.params;
+  const profile = await rejectParentRequestService(parentId, req.user);
+
+  res.status(200).json({
+    status: "success",
+    message: "Parent link request rejected.",
+    data: profile,
   });
 });
 
@@ -253,6 +288,9 @@ export {
   getStudentTranscriptController,
   linkChildController,
   linkChildrenBulkController,
+  getPendingParentRequestsController,
+  acceptParentRequestController,
+  rejectParentRequestController,
   adminLinkParentController,
   adminUnlinkParentController,
   adminLinkInstructorController,
