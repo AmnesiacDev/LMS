@@ -64,3 +64,32 @@ export const profileIdSchema = Joi.object({
       "any.required": "Profile ID is required",
     }),
 });
+
+export const linkChildSchema = Joi.object({
+  childIdentifier: Joi.string().trim().min(3).required().messages({
+    "string.min": "Child email or username must be at least 3 characters",
+    "any.required": "Child email or username is required",
+  }),
+});
+
+export const adminLinkParentSchema = Joi.object({
+  studentUserId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required().messages({
+    "string.pattern.base": "Invalid student user ID format",
+    "any.required": "studentUserId is required",
+  }),
+  parentUserId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required().messages({
+    "string.pattern.base": "Invalid parent user ID format",
+    "any.required": "parentUserId is required",
+  }),
+});
+
+export const adminLinkInstructorSchema = Joi.object({
+  studentUserId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required().messages({
+    "string.pattern.base": "Invalid student user ID format",
+    "any.required": "studentUserId is required",
+  }),
+  instructorUserId: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required().messages({
+    "string.pattern.base": "Invalid instructor user ID format",
+    "any.required": "instructorUserId is required",
+  }),
+});

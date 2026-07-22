@@ -12,7 +12,12 @@ const studentProfileSchema = new mongoose.Schema(
       {
         type: mongoose.Schema.ObjectId,
         ref: "User",
-        required: true,
+      },
+    ],
+    instructors: [
+      {
+        type: mongoose.Schema.ObjectId,
+        ref: "User",
       },
     ],
     grade: {
@@ -37,11 +42,13 @@ const studentProfileSchema = new mongoose.Schema(
 
 // studentProfileSchema.index({ user: 1 }, { unique: true });
 studentProfileSchema.index({ parents: 1 });
+studentProfileSchema.index({ instructors: 1 });
 
-studentProfileSchema.pre(/^find/,async function (){
-  this.populate({path:"parents" , select:"FullName UserName Email"})
-  this.populate({path:"user" , select:"FullName UserName Email"})
-})
+studentProfileSchema.pre(/^find/, async function () {
+  this.populate({ path: "parents", select: "FullName UserName Email" });
+  this.populate({ path: "instructors", select: "FullName UserName Email" });
+  this.populate({ path: "user", select: "FullName UserName Email" });
+});
 
 const StudentProfile = new mongoose.model("StudentProfile", studentProfileSchema);
 

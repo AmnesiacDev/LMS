@@ -1,7 +1,20 @@
 import PDFDocument from "pdfkit";
 import CatchAsync from "../Utilities/CatchAsync.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
-import { getStudentProfileService, updateStudentProfileService, createStudentProfileService, getMyStudentProfileService, getMyStudentProfileServiceById, getAllStudentProfilesService, canAccessStudentProfile } from "../Services/studentProfileServices.js";
+import {
+  getStudentProfileService,
+  updateStudentProfileService,
+  createStudentProfileService,
+  getMyStudentProfileService,
+  getMyStudentProfileServiceById,
+  getAllStudentProfilesService,
+  canAccessStudentProfile,
+  linkChildToParentService,
+  adminForceLinkParentService,
+  adminForceUnlinkParentService,
+  adminForceLinkInstructorService,
+  adminForceUnlinkInstructorService,
+} from "../Services/studentProfileServices.js";
 import StudentProfile from "../Models/studentProfile.js";
 import Session from "../Models/Session.js";
 import Exam from "../Models/exam.js";
@@ -18,6 +31,65 @@ const getMyStudentProfileController = CatchAsync(async (req, res, next) => {
   const profiles = await getMyStudentProfileService(user);
 
   res.status(200).json({
+    status: "success",
+    data: profiles,
+  });
+});
+
+const linkChildController = CatchAsync(async (req, res, next) => {
+  const { childIdentifier } = req.body;
+  const profile = await linkChildToParentService(childIdentifier, req.user);
+
+  res.status(200).json({
+    status: "success",
+    message: "Child successfully linked!",
+    data: profile,
+  });
+});
+
+const adminLinkParentController = CatchAsync(async (req, res, next) => {
+  const { studentUserId, parentUserId } = req.body;
+  const profile = await adminForceLinkParentService(studentUserId, parentUserId);
+
+  res.status(200).json({
+    status: "success",
+    message: "Parent successfully linked to student!",
+    data: profile,
+  });
+});
+
+const adminUnlinkParentController = CatchAsync(async (req, res, next) => {
+  const { studentUserId, parentUserId } = req.body;
+  const profile = await adminForceUnlinkParentService(studentUserId, parentUserId);
+
+  res.status(200).json({
+    status: "success",
+    message: "Parent successfully unlinked from student!",
+    data: profile,
+  });
+});
+
+const adminLinkInstructorController = CatchAsync(async (req, res, next) => {
+  const { studentUserId, instructorUserId } = req.body;
+  const profile = await adminForceLinkInstructorService(studentUserId, instructorUserId);
+
+  res.status(200).json({
+    status: "success",
+    message: "Instructor successfully assigned to student!",
+    data: profile,
+  });
+});
+
+const adminUnlinkInstructorController = CatchAsync(async (req, res, next) => {
+  const { studentUserId, instructorUserId } = req.body;
+  const profile = await adminForceUnlinkInstructorService(studentUserId, instructorUserId);
+
+  res.status(200).json({
+    status: "success",
+    message: "Instructor successfully unassigned from student!",
+    data: profile,
+  });
+});
     status: "success",
     data: profiles,
   });
@@ -162,4 +234,17 @@ const getStudentTranscriptController = CatchAsync(async (req, res, next) => {
   doc.end();
 });
 
-export { getStudentProfileController, updateStudentProfileController, createStudentProfileController, getMyStudentProfileController, getMyStudentProfileByIdController, getAllStudentProfileController, getStudentTranscriptController };
+export {
+  getStudentProfileController,
+  updateStudentProfileController,
+  createStudentProfileController,
+  getMyStudentProfileController,
+  getMyStudentProfileByIdController,
+  getAllStudentProfileController,
+  getStudentTranscriptController,
+  linkChildController,
+  adminLinkParentController,
+  adminUnlinkParentController,
+  adminLinkInstructorController,
+  adminUnlinkInstructorController,
+};

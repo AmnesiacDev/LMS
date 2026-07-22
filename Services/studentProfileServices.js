@@ -27,6 +27,12 @@ const canAccessStudentProfile = async (currentUser, profile) => {
   }
 
   if (currentUser.role === "instructor") {
+    const isAssigned = (profile.instructors || []).some((i) => {
+      const iid = i?._id || i;
+      return iid?.toString() === currentUser._id.toString();
+    });
+    if (isAssigned) return true;
+
     const exists = await Session.exists({
       instructorId: currentUser._id,
       studentProfileId: profile._id,
@@ -35,6 +41,111 @@ const canAccessStudentProfile = async (currentUser, profile) => {
   }
 
   return false;
+};
+
+const linkChildToParentService = async (childIdentifier, parentUser) => {
+  if (!childIdentifier || typeof childIdentifier !== "string") {
+    throw new AppErrorHelper("Please provide a valid child email or username!", 400);
+  }
+
+  const query = childIdentifier.includes("@")
+    ? { Email: childIdentifier.trim().toLowerCase(), role: "student" }
+    : { UserName: childIdentifier.trim(), role: "student" };
+
+  const studentUser = await User.findOne(query);
+  if (!studentUser) {
+    throw new AppErrorHelper("No student user found with this email or username!", 404);
+  }
+
+  let profile = await StudentProfile.findOne({ user: studentUser._id });
+  if (!profile) {
+    profile = await StudentProfile.create({
+      user: studentUser._id,
+      parents: [parentUser._id],
+    });
+  } else {
+    profile = await StudentProfile.findByIdAndUpdate(
+      profile._id,
+      { $addToSet: { parents: parentUser._id } },
+      { new: true, runValidators: true }
+    );
+  }
+
+  return profile;
+};
+
+const adminForceLinkParentService = async (studentUserId, parentUserId) => {
+  const [studentUser, parentUser] = await Promise.all([
+    User.findOne({ _id: studentUserId, role: "student" }),
+    User.findOne({ _id: parentUserId, role: "parent" }),
+  ]);
+
+  if (!studentUser) throw new AppErrorHelper("Student user not found!", 404);
+  if (!parentUser) throw new AppErrorHelper("Parent user not found!", 404);
+
+  let profile = await StudentProfile.findOne({ user: studentUser._id });
+  if (!profile) {
+    profile = await StudentProfile.create({
+      user: studentUser._id,
+      parents: [parentUser._id],
+    });
+  } else {
+    profile = await StudentProfile.findByIdAndUpdate(
+      profile._id,
+      { $addToSet: { parents: parentUser._id } },
+      { new: true, runValidators: true }
+    );
+  }
+
+  return profile;
+};
+
+const adminForceUnlinkParentService = async (studentUserId, parentUserId) => {
+  const profile = await StudentProfile.findOneAndUpdate(
+    { user: studentUserId },
+    { $pull: { parents: parentUserId } },
+    { new: true }
+  );
+
+  if (!profile) throw new AppErrorHelper("Student profile not found!", 404);
+  return profile;
+};
+
+const adminForceLinkInstructorService = async (studentUserId, instructorUserId) => {
+  const [studentUser, instructorUser] = await Promise.all([
+    User.findOne({ _id: studentUserId, role: "student" }),
+    User.findOne({ _id: instructorUserId, role: "instructor" }),
+  ]);
+
+  if (!studentUser) throw new AppErrorHelper("Student user not found!", 404);
+  if (!instructorUser) throw new AppErrorHelper("Instructor user not found!", 404);
+
+  let profile = await StudentProfile.findOne({ user: studentUser._id });
+  if (!profile) {
+    profile = await StudentProfile.create({
+      user: studentUser._id,
+      instructors: [instructorUser._id],
+    });
+  } else {
+    profile = await StudentProfile.findByIdAndUpdate(
+      profile._id,
+      { $addToSet: { instructors: instructorUser._id } },
+      { new: true, runValidators: true }
+    );
+  }
+
+  return profile;
+};
+
+const adminForceUnlinkInstructorService = async (studentUserId, instructorUserId) => {
+  const profile = await StudentProfile.findOneAndUpdate(
+    { user: studentUserId },
+    { $pull: { instructors: instructorUserId } },
+    { new: true }
+  );
+
+  if (!profile) throw new AppErrorHelper("Student profile not found!", 404);
+  return profile;
 };
 
 const createStudentProfileService = async (userId, profileData, currentUser) => {
@@ -235,4 +346,18 @@ const recalculateAttendanceStreakService = async (studentProfileId) => {
   return { attendanceStreak: profile.attendanceStreak, longestStreak: profile.longestStreak };
 };
 
-export { getStudentProfileService, updateStudentProfileService, createStudentProfileService, getMyStudentProfileService, getMyStudentProfileServiceById, getAllStudentProfilesService, recalculateAttendanceStreakService, canAccessStudentProfile };
+export {
+  getStudentProfileService,
+  updateStudentProfileService,
+  createStudentProfileService,
+  getMyStudentProfileService,
+  getMyStudentProfileServiceById,
+  getAllStudentProfilesService,
+  recalculateAttendanceStreakService,
+  canAccessStudentProfile,
+  linkChildToParentService,
+  adminForceLinkParentService,
+  adminForceUnlinkParentService,
+  adminForceLinkInstructorService,
+  adminForceUnlinkInstructorService,
+};

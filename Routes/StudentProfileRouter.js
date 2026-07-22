@@ -7,19 +7,36 @@ import {
   getMyStudentProfileByIdController,
   getAllStudentProfileController,
   getStudentTranscriptController,
+  linkChildController,
+  adminLinkParentController,
+  adminUnlinkParentController,
+  adminLinkInstructorController,
+  adminUnlinkInstructorController,
 } from "../Controllers/StudentprofileController.js";
 import { protectionController, restrictedToController } from "../Controllers/AuthController.js";
 import { validate } from "../Middleware/validate.js";
-import { createStudentProfileSchema, updateStudentProfileSchema, profileIdSchema } from "../Validation/studentProfileValidation.js";
+import {
+  createStudentProfileSchema,
+  updateStudentProfileSchema,
+  profileIdSchema,
+  linkChildSchema,
+  adminLinkParentSchema,
+  adminLinkInstructorSchema,
+} from "../Validation/studentProfileValidation.js";
 
 const router = express.Router();
 
 router.use(protectionController);
 
-router.get("/me", restrictedToController("parent" ,"student") , getMyStudentProfileController);
+router.post("/link-child", restrictedToController("parent", "admin"), validate(linkChildSchema), linkChildController);
 
-router.get("/me/:id", restrictedToController("parent" ,"student") , getMyStudentProfileByIdController);
+router.post("/admin/link-parent", restrictedToController("admin"), validate(adminLinkParentSchema), adminLinkParentController);
+router.post("/admin/unlink-parent", restrictedToController("admin"), validate(adminLinkParentSchema), adminUnlinkParentController);
+router.post("/admin/link-instructor", restrictedToController("admin"), validate(adminLinkInstructorSchema), adminLinkInstructorController);
+router.post("/admin/unlink-instructor", restrictedToController("admin"), validate(adminLinkInstructorSchema), adminUnlinkInstructorController);
 
+router.get("/me", restrictedToController("parent", "student"), getMyStudentProfileController);
+router.get("/me/:id", restrictedToController("parent", "student"), getMyStudentProfileByIdController);
 router.get("/all", restrictedToController("admin", "instructor"), getAllStudentProfileController);
 
 // PDF transcript — admin and instructor can generate; parent can only get their child's
@@ -35,9 +52,7 @@ router.get(
 
 router
   .route("/:id")
-  .post(restrictedToController("parent" ,"student", "admin"), validate(profileIdSchema, "params"), validate(createStudentProfileSchema), createStudentProfileController)
-  .patch(restrictedToController("parent" ,"student", "admin"), validate(profileIdSchema, "params"), validate(updateStudentProfileSchema), updateStudentProfileController);
-
- 
+  .post(restrictedToController("parent", "student", "admin"), validate(profileIdSchema, "params"), validate(createStudentProfileSchema), createStudentProfileController)
+  .patch(restrictedToController("parent", "student", "admin"), validate(profileIdSchema, "params"), validate(updateStudentProfileSchema), updateStudentProfileController);
 
 export default router;
