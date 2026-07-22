@@ -33,8 +33,8 @@ const router = express.Router();
 
 router.use(protectionController);
 
-router.post("/link-child", restrictedToController("parent", "admin"), validate(linkChildSchema), linkChildController);
-router.post("/link-children-bulk", restrictedToController("parent", "admin"), validate(linkChildrenBulkSchema), linkChildrenBulkController);
+router.post("/link-child", restrictedToController("parent"), validate(linkChildSchema), linkChildController);
+router.post("/link-children-bulk", restrictedToController("parent"), validate(linkChildrenBulkSchema), linkChildrenBulkController);
 
 router.get("/me/parent-requests", restrictedToController("student"), getPendingParentRequestsController);
 router.post("/me/parent-requests/:parentId/accept", restrictedToController("student"), acceptParentRequestController);
@@ -62,7 +62,7 @@ router.get(
 
 router
   .route("/:id")
-  .post(restrictedToController("parent", "student", "admin"), validate(profileIdSchema, "params"), validate(createStudentProfileSchema), createStudentProfileController)
+  .post(restrictedToController("student", "admin"), validate(profileIdSchema, "params"), validate(createStudentProfileSchema), createStudentProfileController)
   .patch(restrictedToController("parent", "student", "admin"), validate(profileIdSchema, "params"), validate(updateStudentProfileSchema), updateStudentProfileController);
 
 export default router;

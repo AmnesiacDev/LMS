@@ -44,9 +44,42 @@ const canAccessStudentProfile = async (currentUser, profile) => {
   return false;
 };
 
+const containsUserReference = (references, userId) =>
+  (references || []).some((reference) => {
+    const referenceId = reference?._id || reference;
+    return referenceId?.toString() === userId.toString();
+  });
+
+const throwIfParentLinkConflict = (profile, parentUser, studentUser) => {
+  if (containsUserReference(profile.parents, parentUser._id)) {
+    throw new AppErrorHelper(
+      `Student "${studentUser.FullName || studentUser.UserName}" is already linked to your account!`,
+      409,
+    );
+  }
+
+  if (containsUserReference(profile.pendingParentRequests, parentUser._id)) {
+    throw new AppErrorHelper(
+      `A link request for "${studentUser.FullName || studentUser.UserName}" is already pending student approval!`,
+      409,
+    );
+  }
+};
+
 const linkChildToParentService = async (childIdentifier, parentUser) => {
+  if (!parentUser) {
+    throw new AppErrorHelper("You are not logged in!", 401);
+  }
+  if (parentUser.role !== "parent") {
+    throw new AppErrorHelper("Only parent accounts can send child link requests", 403);
+  }
   if (!childIdentifier || typeof childIdentifier !== "string") {
     throw new AppErrorHelper("Please provide a valid child email or username!", 400);
+  }
+
+  const requestingParent = await User.findOne({ _id: parentUser._id, role: "parent" });
+  if (!requestingParent) {
+    throw new AppErrorHelper("Parent user not found", 404);
   }
 
   const query = childIdentifier.includes("@")
@@ -58,51 +91,56 @@ const linkChildToParentService = async (childIdentifier, parentUser) => {
     throw new AppErrorHelper("No student user found with this email or username!", 404);
   }
 
-  let profile = await StudentProfile.findOne({ user: studentUser._id });
-  if (!profile) {
-    profile = await StudentProfile.create({
-      user: studentUser._id,
-      pendingParentRequests: [parentUser._id],
-    });
-  } else {
-    const isAlreadyLinked = (profile.parents || []).some((p) => {
-      const pid = (p?._id || p)?.toString();
-      return pid === parentUser._id.toString();
-    });
-
-    if (isAlreadyLinked) {
-      throw new AppErrorHelper(
-        `Student "${studentUser.FullName || studentUser.UserName}" is already linked to your account!`,
-        409
-      );
-    }
-
-    const isPending = (profile.pendingParentRequests || []).some((p) => {
-      const pid = (p?._id || p)?.toString();
-      return pid === parentUser._id.toString();
-    });
-
-    if (isPending) {
-      throw new AppErrorHelper(
-        `A link request for "${studentUser.FullName || studentUser.UserName}" is already pending student approval!`,
-        409
-      );
-    }
-
-    profile = await StudentProfile.findByIdAndUpdate(
-      profile._id,
-      { $addToSet: { pendingParentRequests: parentUser._id } },
-      { new: true, runValidators: true }
+  const addRequestToExistingProfile = () =>
+    StudentProfile.findOneAndUpdate(
+      {
+        user: studentUser._id,
+        parents: { $ne: requestingParent._id },
+        pendingParentRequests: { $ne: requestingParent._id },
+      },
+      { $addToSet: { pendingParentRequests: requestingParent._id } },
+      { returnDocument: "after", runValidators: true },
     );
+
+  let profile = await addRequestToExistingProfile();
+
+  if (!profile) {
+    const existingProfile = await StudentProfile.findOne({ user: studentUser._id });
+
+    if (existingProfile) {
+      throwIfParentLinkConflict(existingProfile, requestingParent, studentUser);
+      // The profile may have been created concurrently by a different parent.
+      profile = await addRequestToExistingProfile();
+    } else {
+      try {
+        profile = await StudentProfile.create({
+          user: studentUser._id,
+          pendingParentRequests: [requestingParent._id],
+        });
+      } catch (error) {
+        if (error?.code !== 11000) throw error;
+        // Another request created the one-per-student profile first. Retry the
+        // conditional update so different parents can both request access.
+        profile = await addRequestToExistingProfile();
+      }
+    }
+  }
+
+  if (!profile) {
+    const latestProfile = await StudentProfile.findOne({ user: studentUser._id });
+    if (latestProfile) {
+      throwIfParentLinkConflict(latestProfile, requestingParent, studentUser);
+    }
+    throw new AppErrorHelper("The student profile changed while creating the link request. Please try again.", 409);
   }
 
   try {
     await Notification.create({
       recipient: studentUser._id,
-      sender: parentUser._id,
-      type: "system",
+      sender: requestingParent._id,
+      type: "system_alert",
       title: "Parent Link Request",
-      message: `Parent ${parentUser.FullName || parentUser.UserName} (${parentUser.Email}) sent you a link request.`,
+      message: `Parent ${requestingParent.FullName || requestingParent.UserName} (${requestingParent.Email}) sent you a link request.`,
     });
   } catch (e) {
     // Ignore notification creation error if any
@@ -126,37 +164,35 @@ const acceptParentRequestService = async (parentUserId, studentUser) => {
   if (!studentUser || studentUser.role !== "student") {
     throw new AppErrorHelper("Only student accounts can accept parent requests", 403);
   }
+  if (!mongoose.isValidObjectId(parentUserId)) {
+    throw new AppErrorHelper("Invalid parent ID", 400);
+  }
 
-  const profile = await StudentProfile.findOne({ user: studentUser._id });
-  if (!profile) throw new AppErrorHelper("Student profile not found", 404);
+  const parentUser = await User.findOne({ _id: parentUserId, role: "parent" });
+  if (!parentUser) {
+    throw new AppErrorHelper("Parent user not found", 404);
+  }
 
-  const isPending = (profile.pendingParentRequests || []).some((p) => {
-    const pid = (p?._id || p)?.toString();
-    return pid === parentUserId.toString();
-  });
+  const profile = await StudentProfile.findOneAndUpdate(
+    { user: studentUser._id, pendingParentRequests: parentUser._id },
+    {
+      $pull: { pendingParentRequests: parentUser._id },
+      $addToSet: { parents: parentUser._id },
+    },
+    { returnDocument: "after", runValidators: true },
+  );
 
-  if (!isPending) {
+  if (!profile) {
     throw new AppErrorHelper("Pending link request not found", 404);
   }
 
-  profile.pendingParentRequests = (profile.pendingParentRequests || []).filter(
-    (p) => (p?._id || p)?.toString() !== parentUserId.toString()
-  );
-
-  const alreadyParents = (profile.parents || []).map((p) => (p?._id || p)?.toString());
-  if (!alreadyParents.includes(parentUserId.toString())) {
-    profile.parents.push(parentUserId);
-  }
-
-  await profile.save();
-
   try {
     await Notification.create({
-      recipient: parentUserId,
+      recipient: parentUser._id,
       sender: studentUser._id,
-      type: "system",
+      type: "system_alert",
       title: "Link Request Accepted",
-      message: `Student ${studentUser.FullName || studentUser.UserName} accepted your link request!`,
+      message: `Student ${profile.user?.FullName || profile.user?.UserName || "student"} accepted your link request!`,
     });
   } catch (e) {}
 
@@ -167,15 +203,21 @@ const rejectParentRequestService = async (parentUserId, studentUser) => {
   if (!studentUser || studentUser.role !== "student") {
     throw new AppErrorHelper("Only student accounts can reject parent requests", 403);
   }
+  if (!mongoose.isValidObjectId(parentUserId)) {
+    throw new AppErrorHelper("Invalid parent ID", 400);
+  }
 
-  const profile = await StudentProfile.findOne({ user: studentUser._id });
-  if (!profile) throw new AppErrorHelper("Student profile not found", 404);
-
-  profile.pendingParentRequests = (profile.pendingParentRequests || []).filter(
-    (p) => (p?._id || p)?.toString() !== parentUserId.toString()
+  let profile = await StudentProfile.findOneAndUpdate(
+    { user: studentUser._id, pendingParentRequests: parentUserId },
+    { $pull: { pendingParentRequests: parentUserId } },
+    { returnDocument: "after", runValidators: true },
   );
 
-  await profile.save();
+  if (!profile) {
+    profile = await StudentProfile.findOne({ user: studentUser._id });
+  }
+  if (!profile) throw new AppErrorHelper("Student profile not found", 404);
+
   return profile;
 };
 
@@ -187,8 +229,17 @@ const linkChildrenBulkService = async (identifiersInput, parentUser) => {
     list = identifiersInput.split(/[\n,;\s]+/).map((s) => s.trim()).filter(Boolean);
   }
 
-  // Deduplicate case-insensitively
-  const uniqueList = [...new Set(list.map((item) => item.trim()))].filter((item) => item.length > 0);
+  // Deduplicate case-insensitively while preserving the first spelling.
+  const uniqueList = [];
+  const seenIdentifiers = new Set();
+  for (const item of list) {
+    if (typeof item !== "string") continue;
+    const trimmedItem = item.trim();
+    const normalizedItem = trimmedItem.toLowerCase();
+    if (!trimmedItem || seenIdentifiers.has(normalizedItem)) continue;
+    seenIdentifiers.add(normalizedItem);
+    uniqueList.push(trimmedItem);
+  }
 
   if (uniqueList.length === 0) {
     throw new AppErrorHelper("Please provide at least one valid child email or username!", 400);
@@ -319,6 +370,12 @@ const createStudentProfileService = async (userId, profileData, currentUser) => 
   if (!currentUser) {
     throw new AppErrorHelper("You are not logged in!", 401);
   }
+  if (currentUser.role === "parent") {
+    throw new AppErrorHelper("Parents must use the child link request flow", 403);
+  }
+  if (!["student", "admin"].includes(currentUser.role)) {
+    throw new AppErrorHelper("You are not allowed to create a student profile", 403);
+  }
 
   const targetUser = await User.findById(userId);
   if (!targetUser || !targetUser.isActive) {
@@ -333,10 +390,6 @@ const createStudentProfileService = async (userId, profileData, currentUser) => 
     if (targetUser._id.toString() !== currentUser._id.toString()) {
       throw new AppErrorHelper("You can only create your own profile!", 403);
     }
-  } else if (currentUser.role === "parent") {
-    // Parent may onboard any student-role user, but the parents list is
-    // force-set to themselves so they can't slip in third-party "parents".
-    profileData = { ...profileData, parents: [currentUser._id] };
   }
   // admin: unrestricted
 
