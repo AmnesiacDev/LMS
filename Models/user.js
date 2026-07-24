@@ -56,6 +56,27 @@ const userSchema = new schema(
       type: Boolean,
       default: true,
     },
+    // Public parent and student sign-ups are held for an admin review. The
+    // default keeps pre-existing and admin-provisioned accounts usable; the
+    // public signup service explicitly assigns the pending state.
+    approvalStatus: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "approved",
+      required: true,
+    },
+    approvalReviewedBy: {
+      type: schema.Types.ObjectId,
+      ref: "User",
+    },
+    approvalReviewedAt: {
+      type: Date,
+    },
+    rejectionReason: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+    },
     passwordResetToken: {
       type: String,
       select: false,
@@ -88,10 +109,9 @@ const userSchema = new schema(
   { timestamps: true },
 );
 
-
-
 userSchema.index({ role: 1 });
 userSchema.index({ isActive: 1 });
+userSchema.index({ approvalStatus: 1, role: 1 });
 
 // By default hide inactive users. Pass { withInactive: true } in query options
 // (e.g. Model.find({}).setOptions({ withInactive: true })) to bypass this filter

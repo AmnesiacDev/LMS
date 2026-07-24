@@ -14,10 +14,26 @@ import { randomUUID } from "crypto";
 // "2h" as 2 days, drifting the two values apart.
 const refreshExpiryMs = ms(process.env.JWT_REFRESH_EXPIRES_IN || "7d");
 if (typeof refreshExpiryMs !== "number" || refreshExpiryMs <= 0) {
-  throw new Error(
-    `Invalid JWT_REFRESH_EXPIRES_IN: "${process.env.JWT_REFRESH_EXPIRES_IN}". Use an ms-format string like "7d", "2h", "30m".`
-  );
+  throw new Error(`Invalid JWT_REFRESH_EXPIRES_IN: "${process.env.JWT_REFRESH_EXPIRES_IN}". Use an ms-format string like "7d", "2h", "30m".`);
 }
+
+const approvalRequiredRoles = new Set(["student", "parent"]);
+
+const assertAccountIsApproved = (user) => {
+  // Accounts created before this feature have no approvalStatus. Treat those
+  // legacy accounts as approved so this release does not lock them out.
+  const approvalStatus = user.approvalStatus || "approved";
+
+  if (!approvalRequiredRoles.has(user.role) || approvalStatus === "approved") {
+    return;
+  }
+
+  if (approvalStatus === "pending") {
+    throw new AppErrorHelper("Your account is waiting for admin approval.", 403);
+  }
+
+  throw new AppErrorHelper("Your account request was not approved. Please contact an administrator.", 403);
+};
 
 async function SendTokenService(user) {
   const tokenId = randomUUID();
@@ -51,17 +67,18 @@ const SignUpService = async (userData, _origin) => {
     password: user.password,
     role: user.role,
     avatar: user.avatar,
-    isActive: user.isActive,
-    emailVerified: true,          // No email verification required for any role
+    approvalStatus: "pending",
+    emailVerified: true, // No email verification required for any role
   });
 
-  // All roles get tokens immediately — no verification step
-  return SendTokenService(newUser);
+  // New parent and student registrations need admin approval before login.
+  newUser.password = undefined;
+  return { user: newUser, requiresApproval: true };
 };
 const LoginService = async (email, password) => {
   // Removed transaction support for standalone MongoDB (development environment)
   // Transactions require MongoDB replica set or sharded cluster
-  
+
   const user = await User.findOne({ Email: email }).select("+password");
 
   // Use the same generic error for both "no user" and "wrong password"
@@ -69,6 +86,8 @@ const LoginService = async (email, password) => {
   if (!user || !(await ComparePasswordHelper(password, user.password))) {
     throw new AppErrorHelper("Invalid email or password", 401);
   }
+
+  assertAccountIsApproved(user);
 
   // Remove expired tokens
   await Token.deleteMany({ userId: user._id, expiresAt: { $lt: new Date() } });
@@ -107,6 +126,11 @@ const refreshTokenService = async (cookieToken) => {
 
   const user = await User.findById(storedToken.userId);
 
+  if (!user || !user.isActive) {
+    throw new AppErrorHelper("Invalid Token Please login again !", 401);
+  }
+  assertAccountIsApproved(user);
+
   return SendTokenService(user);
 };
 
@@ -130,11 +154,13 @@ const ProtectionService = async function (req) {
 
   // Check for the user if he is still active
 
-  const user = await User.findById(verifiedToken.id).select("_id role isActive").lean();
+  const user = await User.findById(verifiedToken.id).select("_id role isActive approvalStatus").lean();
 
   if (!user || !user.isActive) {
     throw new AppErrorHelper("User not found ", 404);
   }
+
+  assertAccountIsApproved(user);
 
   // Surface impersonation context so audit/RBAC code can react to it.
   if (verifiedToken.impersonator) {
@@ -156,7 +182,7 @@ const ForgotPasswordService = async (email, origin) => {
   const rawToken = crypto.randomBytes(32).toString("hex");
   const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
 
-  user.passwordResetToken   = hashedToken;
+  user.passwordResetToken = hashedToken;
   user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
   await user.save({ validateBeforeSave: false });
 
@@ -166,7 +192,7 @@ const ForgotPasswordService = async (email, origin) => {
     await sendPasswordResetEmail({ to: user.Email, resetUrl, userName: user.FullName });
   } catch {
     // Roll back the token so the user can try again
-    user.passwordResetToken   = undefined;
+    user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
     await user.save({ validateBeforeSave: false });
     throw new AppErrorHelper("Failed to send reset email. Please try again.", 500);
@@ -178,7 +204,7 @@ const ResetPasswordService = async (rawToken, newPassword) => {
   const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
 
   const user = await User.findOne({
-    passwordResetToken:   hashedToken,
+    passwordResetToken: hashedToken,
     passwordResetExpires: { $gt: new Date() },
   }).select("+passwordResetToken +passwordResetExpires");
 
@@ -186,8 +212,8 @@ const ResetPasswordService = async (rawToken, newPassword) => {
     throw new AppErrorHelper("Token is invalid or has expired", 400);
   }
 
-  user.password             = newPassword;
-  user.passwordResetToken   = undefined;
+  user.password = newPassword;
+  user.passwordResetToken = undefined;
   user.passwordResetExpires = undefined;
   await user.save();
 
@@ -208,8 +234,8 @@ const VerifyEmailService = async (rawToken) => {
     throw new AppErrorHelper("Verification link is invalid or has expired. Please sign up again.", 400);
   }
 
-  user.emailVerified             = true;
-  user.emailVerificationToken   = undefined;
+  user.emailVerified = true;
+  user.emailVerificationToken = undefined;
   user.emailVerificationExpires = undefined;
   await user.save({ validateBeforeSave: false });
 
@@ -258,17 +284,4 @@ const ValidateApiKeyService = async (rawKey) => {
   return user || null;
 };
 
-export {
-  refreshTokenService,
-  LogOutService,
-  LoginService,
-  SignUpService,
-  ProtectionService,
-  restrictedToService,
-  ForgotPasswordService,
-  ResetPasswordService,
-  VerifyEmailService,
-  ImpersonateService,
-  GenerateApiKeyService,
-  ValidateApiKeyService,
-};
+export { refreshTokenService, LogOutService, LoginService, SignUpService, ProtectionService, restrictedToService, ForgotPasswordService, ResetPasswordService, VerifyEmailService, ImpersonateService, GenerateApiKeyService, ValidateApiKeyService };

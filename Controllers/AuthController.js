@@ -49,14 +49,12 @@ const signUpController = CatchAsync(async (req, res, next) => {
     }).catch(() => {});
   }
 
-  CreateAndSendTokens(req, res, result.accessToken, result.refreshToken);
-
   res.status(201).json({
     status: "success",
-    message: "Account created. You are logged in.",
+    message: "Account created. It is waiting for admin approval.",
     data: {
       user: result.user,
-      token: result.accessToken,
+      requiresApproval: result.requiresApproval,
     },
   });
 });
@@ -110,9 +108,9 @@ const RefreshController = CatchAsync(async (req, res, next) => {
 
   CreateAndSendTokens(req, res, accessToken, refreshToken);
 
-  res.status(200).json({ 
-    status: "success",    
-    data: { token: accessToken }
+  res.status(200).json({
+    status: "success",
+    data: { token: accessToken },
   });
 });
 
@@ -199,4 +197,16 @@ const generateApiKeyController = CatchAsync(async (req, res) => {
   });
 });
 
-export { signUpController, loginController, RefreshController, logoutController, protectionController, restrictedToController, forgotPasswordController, resetPasswordController, verifyEmailController, impersonateController, generateApiKeyController };
+export {
+  signUpController,
+  loginController,
+  RefreshController,
+  logoutController,
+  protectionController,
+  restrictedToController,
+  forgotPasswordController,
+  resetPasswordController,
+  verifyEmailController,
+  impersonateController,
+  generateApiKeyController,
+};

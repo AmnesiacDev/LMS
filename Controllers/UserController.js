@@ -1,6 +1,6 @@
 import CatchAsync from "../Utilities/CatchAsync.js";
 import AppErrorHelper from "../Utilities/AppErrorHelper.js";
-import { getAllUsersService, getUserByIDService, UpdateUserByIDService, SoftDeleteUserByIDService, getMyStudentsService, createUserService } from "../Services/UserServices.js";
+import { createUserService, getAllUsersService, getMyStudentsService, getPendingApprovalUsersService, getUserByIDService, reviewUserApprovalService, SoftDeleteUserByIDService, UpdateUserByIDService } from "../Services/UserServices.js";
 
 const getAllUsersController = CatchAsync(async (req, res, next) => {
   const docs = (await getAllUsersService(req.query)) || [];
@@ -81,4 +81,28 @@ const createUserController = CatchAsync(async (req, res, next) => {
   });
 });
 
-export { getAllUsersController, createUserController, getUserController, UpdateUserController, DeleteUserController, getMyStudentsController };
+const getPendingApprovalsController = CatchAsync(async (_req, res) => {
+  const users = await getPendingApprovalUsersService();
+
+  res.status(200).json({
+    status: "success",
+    data: { users },
+  });
+});
+
+const reviewUserApprovalController = CatchAsync(async (req, res) => {
+  const user = await reviewUserApprovalService({
+    userId: req.params.id,
+    approvalStatus: req.body.approvalStatus,
+    rejectionReason: req.body.rejectionReason,
+    reviewedBy: req.user,
+  });
+
+  res.status(200).json({
+    status: "success",
+    message: `Account ${user.approvalStatus}.`,
+    data: { user },
+  });
+});
+
+export { createUserController, DeleteUserController, getAllUsersController, getMyStudentsController, getPendingApprovalsController, getUserController, reviewUserApprovalController, UpdateUserController };

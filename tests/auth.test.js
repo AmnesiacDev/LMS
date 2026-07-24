@@ -41,9 +41,11 @@ jest.unstable_mockModule("../Services/NotificationHelpers.js", () => ({
 // ─── Setup / Teardown ─────────────────────────────────────────────────────────
 let mongod;
 let app;
+let User;
 
 beforeAll(async () => {
   ({ default: app } = await import("../App.js"));
+  ({ default: User } = await import("../Models/user.js"));
   mongod = await MongoMemoryServer.create();
   await mongoose.connect(mongod.getUri());
 }, 120_000);
@@ -84,18 +86,25 @@ const signup = (body = validUser) => request(app).post("/api/v1/auth/signup").se
 
 const login = (body = { email: validUser.Email, password: validUser.password }) => request(app).post("/api/v1/auth/login").set("X-Forwarded-For", testIp).send(body);
 
+const approveTestUser = async (email = validUser.Email) => User.findOneAndUpdate({ Email: email }, { approvalStatus: "approved" }, { returnDocument: "after" });
+
 // ─── Sign Up ──────────────────────────────────────────────────────────────────
 describe("POST /api/v1/auth/signup", () => {
-  it("creates a new user and returns 201", async () => {
+  it("creates a pending user without issuing a session", async () => {
     const res = await signup();
     expect(res.status).toBe(201);
     expect(res.body.status).toBe("success");
     expect(res.body.data.user).toBeDefined();
     expect(res.body.data.user.password).toBeUndefined(); // never expose password
+    expect(res.body.data.user.approvalStatus).toBe("pending");
+    expect(res.body.data.requiresApproval).toBe(true);
+    expect(res.body.data.token).toBeUndefined();
+    expect(res.headers["set-cookie"]).toBeUndefined();
   });
 
   it("rejects duplicate email with 400/500", async () => {
     await signup();
+    await User.init();
     const res = await signup();
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
@@ -104,12 +113,47 @@ describe("POST /api/v1/auth/signup", () => {
     const res = await signup({ Email: "bad@example.com" });
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
+
+  it("does not allow a pending account to log in", async () => {
+    await signup();
+    const res = await login();
+
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/waiting for admin approval/i);
+    expect(res.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it("lets an admin approve a pending account, then the account can log in", async () => {
+    await signup();
+    const pendingUser = await User.findOne({ Email: validUser.Email });
+    const adminPassword = "AdminPass123!";
+    await User.create({
+      FullName: "Admin User",
+      UserName: "admin_user",
+      Email: "admin@example.com",
+      password: adminPassword,
+      role: "admin",
+      emailVerified: true,
+    });
+
+    const adminLogin = await request(app).post("/api/v1/auth/login").set("X-Forwarded-For", testIp).send({ email: "admin@example.com", password: adminPassword });
+
+    const review = await request(app).patch(`/api/v1/user/${pendingUser._id}/approval`).set("Authorization", `Bearer ${adminLogin.body.data.token}`).send({ approvalStatus: "approved" });
+
+    expect(review.status).toBe(200);
+    expect(review.body.data.user.approvalStatus).toBe("approved");
+
+    const approvedLogin = await login();
+    expect(approvedLogin.status).toBe(200);
+    expect(approvedLogin.body.data.token).toBeDefined();
+  });
 });
 
 // ─── Login ────────────────────────────────────────────────────────────────────
 describe("POST /api/v1/auth/login", () => {
   beforeEach(async () => {
     await signup();
+    await approveTestUser();
   });
 
   it("returns 200 and sets cookies on valid credentials", async () => {
@@ -141,6 +185,7 @@ describe("POST /api/v1/auth/login", () => {
 describe("GET /api/v1/auth/logout", () => {
   it("logs out and clears cookies", async () => {
     await signup();
+    await approveTestUser();
     const loginRes = await login();
     const cookies = loginRes.headers["set-cookie"];
 
@@ -155,6 +200,7 @@ describe("GET /api/v1/auth/logout", () => {
 describe("POST /api/v1/auth/refresh", () => {
   it("issues a new access token from a valid refresh token cookie", async () => {
     await signup();
+    await approveTestUser();
     const loginRes = await login();
     const cookies = loginRes.headers["set-cookie"];
 
