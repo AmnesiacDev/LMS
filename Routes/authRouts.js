@@ -1,6 +1,6 @@
 import express from "express";
 
-import { signUpController, loginController, RefreshController, logoutController, protectionController, restrictedToController, forgotPasswordController, resetPasswordController, verifyEmailController, impersonateController, generateApiKeyController } from "../Controllers/AuthController.js";
+import { signUpController, loginController, RefreshController, logoutController, protectionController, getCurrentUserController, restrictedToController, forgotPasswordController, resetPasswordController, verifyEmailController, impersonateController, generateApiKeyController } from "../Controllers/AuthController.js";
 import { validate } from "../Middleware/validate.js";
 import {
   signupSchema,
@@ -135,6 +135,8 @@ router.post(
 router.get("/verify-email/:token", validate(tokenParamSchema, "params"), verifyEmailController);
 
 router.use(protectionController);
+
+router.get("/me", getCurrentUserController);
 
 /**
  * @swagger

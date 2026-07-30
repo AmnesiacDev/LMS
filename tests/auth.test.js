@@ -181,6 +181,63 @@ describe("POST /api/v1/auth/login", () => {
   });
 });
 
+// ─── Current User ─────────────────────────────────────────────────────────────
+describe("GET /api/v1/auth/me", () => {
+  it("returns the database-backed role and only safe current-user fields", async () => {
+    await signup();
+    await approveTestUser();
+    const loginRes = await login();
+
+    const res = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${loginRes.body.data.token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("success");
+    expect(res.body.data.user).toEqual(
+      expect.objectContaining({
+        _id: expect.any(String),
+        FullName: validUser.FullName,
+        UserName: validUser.UserName,
+        Email: validUser.Email,
+        role: "student",
+        isActive: true,
+        approvalStatus: "approved",
+      }),
+    );
+    expect(res.body.data.user.password).toBeUndefined();
+    expect(res.body.data.user.__v).toBeUndefined();
+    expect(res.body.data.user.createdAt).toBeUndefined();
+    expect(res.body.data.user.updatedAt).toBeUndefined();
+  });
+
+  it("does not let an instructor use an admin user-management route", async () => {
+    const instructorPassword = "InstructorPass123!";
+    await User.create({
+      FullName: "Ahmed Teacher",
+      UserName: "ahmedteacher",
+      Email: "ahmed.teacher@test.com",
+      password: instructorPassword,
+      role: "instructor",
+      emailVerified: true,
+    });
+
+    const loginRes = await request(app)
+      .post("/api/v1/auth/login")
+      .set("X-Forwarded-For", testIp)
+      .send({
+        email: "ahmed.teacher@test.com",
+        password: instructorPassword,
+      });
+
+    const res = await request(app)
+      .get("/api/v1/user")
+      .set("Authorization", `Bearer ${loginRes.body.data.token}`);
+
+    expect(res.status).toBe(403);
+  });
+});
+
 // ─── Logout ───────────────────────────────────────────────────────────────────
 describe("GET /api/v1/auth/logout", () => {
   it("logs out and clears cookies", async () => {

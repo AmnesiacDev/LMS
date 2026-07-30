@@ -4,6 +4,24 @@ import CatchAsync from "../Utilities/CatchAsync.js";
 import { refreshTokenService, LogOutService, LoginService, SignUpService, ProtectionService, ForgotPasswordService, ResetPasswordService, VerifyEmailService, ImpersonateService, GenerateApiKeyService } from "../Services/AuthServices.js";
 import { notifyAdmins } from "../Services/NotificationHelpers.js";
 
+const serializeAuthUser = (user) => {
+  const source = typeof user?.toObject === "function" ? user.toObject() : user;
+
+  if (!source) return null;
+
+  return {
+    _id: source._id,
+    FullName: source.FullName,
+    UserName: source.UserName,
+    Email: source.Email,
+    role: source.role,
+    avatar: source.avatar,
+    isActive: source.isActive,
+    approvalStatus: source.approvalStatus,
+    emailVerified: source.emailVerified,
+  };
+};
+
 // ─── Helper ───────────────────────────────────────────────────────────────────
 const CreateAndSendTokens = (req, res, accessToken, refreshToken) => {
   const isSecure = req.secure || req.headers["x-forwarded-proto"] === "https";
@@ -53,7 +71,7 @@ const signUpController = CatchAsync(async (req, res, next) => {
     status: "success",
     message: "Account created. It is waiting for admin approval.",
     data: {
-      user: result.user,
+      user: serializeAuthUser(result.user),
       requiresApproval: result.requiresApproval,
     },
   });
@@ -78,7 +96,7 @@ const loginController = CatchAsync(async (req, res, next) => {
 
   res.status(200).json({
     status: "success",
-    data: { user, token: accessToken },
+    data: { user: serializeAuthUser(user), token: accessToken },
   });
 });
 
@@ -119,6 +137,13 @@ const protectionController = CatchAsync(async (req, res, next) => {
   const user = await ProtectionService(req);
   req.user = user;
   next();
+});
+
+const getCurrentUserController = CatchAsync(async (req, res) => {
+  res.status(200).json({
+    status: "success",
+    data: { user: serializeAuthUser(req.user) },
+  });
 });
 
 // ─── Role Restriction Middleware ──────────────────────────────────────────────
@@ -203,6 +228,7 @@ export {
   RefreshController,
   logoutController,
   protectionController,
+  getCurrentUserController,
   restrictedToController,
   forgotPasswordController,
   resetPasswordController,
