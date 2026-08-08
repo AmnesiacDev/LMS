@@ -5,7 +5,7 @@ import cookieParser from "cookie-parser";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import cors from "cors";
 import compression from "compression";
 import morgan from "morgan";
@@ -113,28 +113,8 @@ const apiLimiter = rateLimit({
 });
 app.use("/api", apiLimiter);
 
-// Helper function to extract client IP address
-const getClientIp = (req) => {
-  return req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.ip || req.socket?.remoteAddress || "unknown";
-};
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 attempts per 15 minutes
-  message: "Too many authentication attempts, please try again after 15 minutes.",
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => isDevelopment,
-  keyGenerator: (req) => {
-    // Use email for login, IP for signup to limit per account
-    if (req.body?.email) {
-      return `login:${req.body.email}`;
-    }
-    return `signup:${getClientIp(req)}`;
-  },
-});
-app.use("/api/v1/auth/login", authLimiter);
-app.use("/api/v1/auth/signup", authLimiter);
+// NOTE: the auth rate limiters live further down, after the body parsers.
+// They key partly on req.body, which does not exist until express.json() runs.
 
 // ─── 5. Request ID + Logging ──────────────────────────────────────────────────
 // Attach a unique ID to every request so errors can be traced across log lines
@@ -210,6 +190,79 @@ app.use((req, _res, next) => {
 
 // ─── 7.5. Global Audit Logging Middleware ────────────────────────────────────
 app.use(auditLogMiddleware);
+
+// ─── 7.6. Auth Rate Limiters ──────────────────────────────────────────────────
+// Mounted here, NOT next to apiLimiter: express.json() has to have run first or
+// req.body is undefined and the per-account key below silently degrades to a
+// pure IP key — which is exactly the bypass this ordering fixes.
+
+// Rate-limit keys must never come from a header the caller controls.
+// app.set("trust proxy") above already resolves req.ip through the configured
+// number of proxy hops; ipKeyGenerator normalises IPv6 to a /64 subnet so a
+// single client cannot walk its own address space for fresh buckets.
+const clientIpKey = (req) => ipKeyGenerator(req.ip ?? req.socket?.remoteAddress ?? "unknown");
+
+// Joi lowercases Email/email, but validation runs inside the router — after
+// this middleware. Normalise here too, otherwise rotating the case of an
+// address ("Victim@x.com", "vIctim@x.com", ...) mints an unlimited number of
+// distinct buckets for the same account.
+const accountKey = (req, field) => {
+  const raw = req.body?.[field];
+  return typeof raw === "string" ? raw.trim().toLowerCase() : null;
+};
+
+const authLimiterDefaults = {
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  message: "Too many authentication attempts, please try again after 15 minutes.",
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => isDevelopment,
+};
+
+// Login gets two independent buckets, and either one can trip:
+//   - per account, so one victim cannot be sprayed from a botnet
+//   - per source IP, so one host cannot spray many accounts
+const loginAccountLimiter = rateLimit({
+  ...authLimiterDefaults,
+  max: 10,
+  keyGenerator: (req) => `login:acct:${accountKey(req, "email") ?? clientIpKey(req)}`,
+});
+const loginIpLimiter = rateLimit({
+  ...authLimiterDefaults,
+  max: 30,
+  keyGenerator: (req) => `login:ip:${clientIpKey(req)}`,
+});
+app.use("/api/v1/auth/login", loginAccountLimiter, loginIpLimiter);
+
+// Signup has its own bucket. Sharing one with login let a burst of failed
+// logins lock out registration and vice versa.
+app.use(
+  "/api/v1/auth/signup",
+  rateLimit({
+    ...authLimiterDefaults,
+    max: 10,
+    keyGenerator: (req) => `signup:${clientIpKey(req)}`,
+  }),
+);
+
+// Password reset was not rate limited at all: /forgot-password is an unauthenticated
+// email trigger (spam amplifier) and /reset-password/:token is a 64-hex-char guess.
+app.use(
+  "/api/v1/auth/forgot-password",
+  rateLimit({
+    ...authLimiterDefaults,
+    max: 5,
+    keyGenerator: (req) => `forgot:${accountKey(req, "email") ?? clientIpKey(req)}`,
+  }),
+);
+app.use(
+  "/api/v1/auth/reset-password",
+  rateLimit({
+    ...authLimiterDefaults,
+    max: 10,
+    keyGenerator: (req) => `reset:${clientIpKey(req)}`,
+  }),
+);
 
 // ─── 8. Compression ─────────────────────────────────────────────────────────────
 app.use(compression());
