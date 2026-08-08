@@ -29,14 +29,7 @@ const sanitizeMeta = (obj) => {
   if (Array.isArray(obj)) return obj.map(sanitizeMeta);
   const newObj = {};
   for (const [key, value] of Object.entries(obj)) {
-    if (
-      /password/i.test(key) ||
-      /token/i.test(key) ||
-      /secret/i.test(key) ||
-      /key/i.test(key) ||
-      /cookie/i.test(key) ||
-      /auth/i.test(key)
-    ) {
+    if (/password/i.test(key) || /token/i.test(key) || /secret/i.test(key) || /key/i.test(key) || /cookie/i.test(key) || /auth/i.test(key)) {
       newObj[key] = "[REDACTED]";
     } else {
       newObj[key] = sanitizeMeta(value);
@@ -64,7 +57,7 @@ export const auditLogMiddleware = (req, res, next) => {
 
           if (pathParts.length > 2) {
             const modelKey = pathParts[2].toLowerCase();
-            targetModel = modelMapping[modelKey] || (modelKey.charAt(0).toUpperCase() + modelKey.slice(1));
+            targetModel = modelMapping[modelKey] || modelKey.charAt(0).toUpperCase() + modelKey.slice(1);
 
             // Extract ID if the 4th segment is a 24-character hexadecimal ObjectId
             if (pathParts.length > 3 && /^[0-9a-fA-F]{24}$/.test(pathParts[3])) {
@@ -78,7 +71,10 @@ export const auditLogMiddleware = (req, res, next) => {
           else if (req.method === "PATCH" || req.method === "PUT") action = `update_${targetModel.toLowerCase()}`;
           else if (req.method === "DELETE") action = `delete_${targetModel.toLowerCase()}`;
 
-          const ip = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.ip;
+          // Trust req.ip (resolved via app.set("trust proxy")) rather than the raw
+          // header. Reading X-Forwarded-For directly let any caller forge the IP
+          // recorded against their own audited actions.
+          const ip = req.ip;
 
           // Build metadata object with path, query, and sanitized body
           const meta = {

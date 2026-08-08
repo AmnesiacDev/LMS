@@ -203,8 +203,10 @@ const verifyEmailController = CatchAsync(async (req, res) => {
 
 // ─── Admin: Impersonate User ─────────────────────────────────────────────────
 const impersonateController = CatchAsync(async (req, res) => {
-  const ip = req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.ip;
-  const { accessToken, target } = await ImpersonateService(req.user, req.params.userId, ip);
+  // req.ip, not the raw X-Forwarded-For header: app.set("trust proxy") already
+  // resolves the real client through the configured hops, whereas the raw header
+  // is caller-supplied and would let an attacker choose what the audit log records.
+  const { accessToken, target } = await ImpersonateService(req.user, req.params.userId, req.ip);
   res.status(200).json({
     status: "success",
     message: `Impersonating ${target.FullName}. Token valid for 2 hours.`,

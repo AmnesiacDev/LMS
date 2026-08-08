@@ -19,12 +19,19 @@ if (typeof refreshExpiryMs !== "number" || refreshExpiryMs <= 0) {
 
 const approvalRequiredRoles = new Set(["student", "parent"]);
 
-const assertAccountIsApproved = (user) => {
+// Boolean form, so non-HTTP callers (the Socket.IO handshake) can apply the
+// same rule without catching an AppErrorHelper.
+const isAccountApproved = (user) => {
   // Accounts created before this feature have no approvalStatus. Treat those
   // legacy accounts as approved so this release does not lock them out.
   const approvalStatus = user.approvalStatus || "approved";
+  return !approvalRequiredRoles.has(user.role) || approvalStatus === "approved";
+};
 
-  if (!approvalRequiredRoles.has(user.role) || approvalStatus === "approved") {
+const assertAccountIsApproved = (user) => {
+  const approvalStatus = user.approvalStatus || "approved";
+
+  if (isAccountApproved(user)) {
     return;
   }
 
@@ -154,9 +161,7 @@ const ProtectionService = async function (req) {
 
   // Check for the user if he is still active
 
-  const user = await User.findById(verifiedToken.id)
-    .select("_id FullName UserName Email role avatar isActive approvalStatus emailVerified")
-    .lean();
+  const user = await User.findById(verifiedToken.id).select("_id FullName UserName Email role avatar isActive approvalStatus emailVerified").lean();
 
   if (!user || !user.isActive) {
     throw new AppErrorHelper("User not found ", 404);
@@ -286,4 +291,18 @@ const ValidateApiKeyService = async (rawKey) => {
   return user || null;
 };
 
-export { refreshTokenService, LogOutService, LoginService, SignUpService, ProtectionService, restrictedToService, ForgotPasswordService, ResetPasswordService, VerifyEmailService, ImpersonateService, GenerateApiKeyService, ValidateApiKeyService };
+export {
+  refreshTokenService,
+  LogOutService,
+  LoginService,
+  SignUpService,
+  ProtectionService,
+  restrictedToService,
+  ForgotPasswordService,
+  ResetPasswordService,
+  VerifyEmailService,
+  ImpersonateService,
+  GenerateApiKeyService,
+  ValidateApiKeyService,
+  isAccountApproved,
+};
