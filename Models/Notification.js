@@ -32,6 +32,7 @@ const notificationSchema = new mongoose.Schema(
         "lesson_completed",
         "announcement",
         "new_user",
+        "canvas_shared",
       ],
       required: true,
     },
