@@ -40,6 +40,8 @@ import LeaderboardRouter from "./Routes/LeaderboardRouter.js";
 import CurriculumRouter from "./Routes/CurriculumRouter.js";
 import StudentInstructorAssignmentRouter from "./Routes/StudentInstructorAssignmentRouter.js";
 import ChannelRouter from "./Routes/ChannelRouter.js";
+import SessionCanvasRouter from "./Routes/SessionCanvasRouter.js";
+import { MAX_BODY_BYTES as CANVAS_MAX_BODY_BYTES } from "./Validation/sessionCanvasValidation.js";
 
 const app = express();
 
@@ -143,6 +145,26 @@ if (logToDisk) {
 app.use(morgan(isProduction ? "combined" : "dev"));
 
 // ─── 6. Body Parsers ───────────────────────────────────────────────────────────
+// Whiteboard scenes are whole JSON documents (every element plus any embedded
+// images), so they cannot fit the 10kb budget the rest of the API uses. Mount a
+// dedicated parser for that one path *before* the global one: body-parser sets
+// req._body once it has consumed the stream, so the 10kb parser below sees the
+// body is already parsed and skips it rather than rejecting an oversized scene.
+// Joi still enforces the real per-field caps; this is only the outer envelope.
+app.use(
+  "/api/v1/session-canvas",
+  express.json({
+    limit: CANVAS_MAX_BODY_BYTES,
+    verify: (req, res, buf) => {
+      try {
+        JSON.parse(buf);
+      } catch (e) {
+        throw new AppErrorHelper("Invalid JSON in request body", 400);
+      }
+    },
+  }),
+);
+
 app.use(
   express.json({
     limit: "10kb",
@@ -344,6 +366,7 @@ app.use("/api/v1/leaderboard", LeaderboardRouter);
 app.use("/api/v1/curriculum", CurriculumRouter);
 app.use("/api/v1/student-instructor-assignments", StudentInstructorAssignmentRouter);
 app.use("/api/v1/channels", ChannelRouter);
+app.use("/api/v1/session-canvas", SessionCanvasRouter);
 
 // ─── 14. 404 Handler ────────────────────────────────────────────────────────────
 app.all(/.*/, (req, res, next) => {
