@@ -17,13 +17,42 @@ const getUserByIDService = async (id) => {
   return user;
 };
 
-const UpdateUserByIDService = async (id, data) => {
-  const options = {
-    new: true,
-    runValidators: true,
-  };
-  const user = await User.findByIdAndUpdate(id, data, options);
+// Fields an admin is allowed to change through PATCH /api/v1/user/:id.
+// Anything else in the body is ignored, so the endpoint cannot be used to
+// write internal state (approvalStatus, apiKeyHash, reset tokens, ...).
+const ADMIN_UPDATABLE_FIELDS = ["FullName", "UserName", "Email", "role", "avatar", "isActive"];
 
+const UpdateUserByIDService = async (id, data = {}) => {
+  // findByIdAndUpdate does NOT run the schema's pre("save") hook, so updating
+  // through it wrote the new password to the database in plaintext. Load the
+  // document and save() it instead: the hook hashes the password on the way in.
+  // +password so the document is complete on save(). The hook only re-hashes
+  // when the path is actually modified, so loading it is safe.
+  const user = await User.findById(id).select("+password").setOptions({ withInactive: true });
+  if (!user) return null;
+
+  for (const field of ADMIN_UPDATABLE_FIELDS) {
+    if (data[field] !== undefined) user[field] = data[field];
+  }
+
+  const newPassword = typeof data.password === "string" ? data.password.trim() : "";
+  const passwordChanged = newPassword.length > 0;
+
+  if (passwordChanged) {
+    // Assigning the plaintext marks the path modified; the pre("save") hook
+    // bcrypts it before it reaches MongoDB.
+    user.password = newPassword;
+  }
+
+  await user.save();
+
+  if (passwordChanged) {
+    // The old credentials are gone, so the sessions minted with them must go
+    // too — otherwise a rotated password leaves every existing login alive.
+    await Token.deleteMany({ userId: user._id });
+  }
+
+  user.password = undefined;
   return user;
 };
 const SoftDeleteUserByIDService = async (id) => {

@@ -17,6 +17,13 @@ Object.assign(process.env, {
   JWT_REFRESH_EXPIRES_IN: "7d",
   SALT_ROUNDS: "4",
   CLIENT_URL: "http://localhost:5173",
+  // Pin the auth limits so these tests assert the *shape* of the buckets
+  // (per-account vs per-IP, login vs signup) rather than whatever the
+  // production defaults happen to be tuned to this week.
+  LOGIN_ACCOUNT_RATE_MAX: "10",
+  LOGIN_IP_RATE_MAX: "30",
+  SIGNUP_RATE_MAX: "10",
+  RESET_RATE_MAX: "10",
 });
 
 const sendPasswordResetEmail = jest.fn().mockResolvedValue(undefined);

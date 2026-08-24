@@ -18,6 +18,7 @@ const __dirname = path.dirname(__filename);
 import GlobalErrorHandler from "./Middleware/GlobalErrorHandler.js";
 import AppErrorHelper from "./Utilities/AppErrorHelper.js";
 import { auditLogMiddleware } from "./Middleware/auditLogMiddleware.js";
+import { verifyAccessToken } from "./Utilities/JwtHelper.js";
 import authRouter from "./Routes/authRouts.js";
 import userRouter from "./Routes/userRouts.js";
 import StudentProfileRouter from "./Routes/StudentProfileRouter.js";
@@ -105,15 +106,45 @@ app.use(
 );
 
 // ─── 3. General API Rate Limiter ───────────────────────────────────────────────
+// Mounted at "/api", so inside this middleware req.path is mount-relative
+// ("/v1/health", not "/api/v1/health"). The old skip list compared against the
+// absolute paths and therefore never matched a single request — health checks
+// and the docs page were burning the same budget as real API traffic.
+const RATE_LIMIT_EXEMPT_PATHS = new Set([
+  "/v1/health",
+  "/v1/auth/refresh", // a throttled refresh reads as "session expired" and logs the user out
+  "/v1/auth/me",
+  "/v1/auth/logout",
+]);
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Increased default to prevent quick lockouts in general
-  message: "Too many requests from this IP, please try again after 15 minutes.",
+  max: Number(process.env.RATE_LIMIT_MAX || 5000),
+  message: "Too many requests, please try again in a few minutes.",
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => isDevelopment || req.path === "/api/v1/health" || req.path === "/api-docs",
+  // Key authenticated traffic by user id, not by IP. A school, office, or
+  // mobile carrier puts every client behind one public address, so a pure IP
+  // key made all of them share a single bucket and locked out whole sites at
+  // once. The token is verified (not just decoded) so the key cannot be forged.
+  keyGenerator: (req) => {
+    const header = req.headers["authorization"];
+    const bearer = header?.startsWith("Bearer ") ? header.slice(7) : null;
+    const raw = bearer || req.cookies?.accessToken;
+
+    if (raw) {
+      try {
+        const { id } = verifyAccessToken(raw);
+        if (id) return `user:${id}`;
+      } catch {
+        // Expired or invalid token — fall through to the IP key.
+      }
+    }
+
+    return `ip:${ipKeyGenerator(req.ip ?? req.socket?.remoteAddress ?? "unknown")}`;
+  },
+  skip: (req) => isDevelopment || RATE_LIMIT_EXEMPT_PATHS.has(req.path),
 });
-app.use("/api", apiLimiter);
 
 // NOTE: the auth rate limiters live further down, after the body parsers.
 // They key partly on req.body, which does not exist until express.json() runs.
@@ -179,6 +210,10 @@ app.use(
 );
 app.use(express.urlencoded({ extended: true, limit: "10kb", parameterLimit: 20 }));
 app.use(cookieParser());
+
+// Mounted here rather than above the parsers: the key generator reads the access
+// token out of req.cookies, which cookieParser() has to have populated first.
+app.use("/api", apiLimiter);
 
 // ─── 7. NoSQL Injection Sanitization ───────────────────────────────────────────
 // Returns a new sanitized copy — never mutates the original object.
@@ -246,12 +281,12 @@ const authLimiterDefaults = {
 //   - per source IP, so one host cannot spray many accounts
 const loginAccountLimiter = rateLimit({
   ...authLimiterDefaults,
-  max: 10,
+  max: Number(process.env.LOGIN_ACCOUNT_RATE_MAX || 20),
   keyGenerator: (req) => `login:acct:${accountKey(req, "email") ?? clientIpKey(req)}`,
 });
 const loginIpLimiter = rateLimit({
   ...authLimiterDefaults,
-  max: 30,
+  max: Number(process.env.LOGIN_IP_RATE_MAX || 100),
   keyGenerator: (req) => `login:ip:${clientIpKey(req)}`,
 });
 app.use("/api/v1/auth/login", loginAccountLimiter, loginIpLimiter);
@@ -262,7 +297,7 @@ app.use(
   "/api/v1/auth/signup",
   rateLimit({
     ...authLimiterDefaults,
-    max: 10,
+    max: Number(process.env.SIGNUP_RATE_MAX || 20),
     keyGenerator: (req) => `signup:${clientIpKey(req)}`,
   }),
 );
@@ -281,7 +316,7 @@ app.use(
   "/api/v1/auth/reset-password",
   rateLimit({
     ...authLimiterDefaults,
-    max: 10,
+    max: Number(process.env.RESET_RATE_MAX || 20),
     keyGenerator: (req) => `reset:${clientIpKey(req)}`,
   }),
 );

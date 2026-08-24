@@ -100,9 +100,9 @@ const LoginService = async (email, password) => {
   await Token.deleteMany({ userId: user._id, expiresAt: { $lt: new Date() } });
 
   // Cap active sessions at 3 — delete all excess oldest tokens in one query
-  const tokenCount = await Token.countDocuments({ userId: user._id });
+  const tokenCount = await Token.countDocuments({ userId: user._id, rotatedAt: null });
   if (tokenCount >= 3) {
-    const excess = await Token.find({ userId: user._id })
+    const excess = await Token.find({ userId: user._id, rotatedAt: null })
       .sort({ createdAt: 1 })
       .limit(tokenCount - 2)
       .select("_id");
@@ -113,6 +113,13 @@ const LoginService = async (email, password) => {
 
   return result;
 };
+
+// How long an already-exchanged refresh token keeps working. Rotation used to
+// delete the old row immediately, which made a completely normal situation —
+// two tabs of the same app refreshing within milliseconds of each other —
+// indistinguishable from a stolen token: whichever tab lost the race was told
+// its session was gone and bounced the user to the login page.
+const REFRESH_ROTATION_GRACE_MS = Number(process.env.REFRESH_ROTATION_GRACE_MS || 60_000);
 
 const refreshTokenService = async (cookieToken) => {
   const payload = verifyRefreshToken(cookieToken);
@@ -129,7 +136,31 @@ const refreshTokenService = async (cookieToken) => {
     throw new AppErrorHelper("Invalid Token Please login again !", 401);
   }
 
-  await Token.findByIdAndDelete(storedToken._id);
+  // Claim the rotation atomically: of N concurrent refreshes presenting the same
+  // token, exactly one wins this update. MongoDB does the serialising, so the
+  // losers take the grace branch below instead of racing on a delete.
+  const claimed = await Token.findOneAndUpdate(
+    { _id: storedToken._id, rotatedAt: null },
+    { $set: { rotatedAt: new Date() } },
+    { new: true },
+  );
+
+  if (!claimed) {
+    // Someone else already exchanged this token. Re-read rather than trusting
+    // the copy fetched above, which was taken before the winning write landed.
+    const current = await Token.findById(storedToken._id);
+    const rotatedAt = current?.rotatedAt?.getTime() ?? 0;
+
+    if (!current || Date.now() - rotatedAt > REFRESH_ROTATION_GRACE_MS) {
+      // A replay of a token exchanged long ago is the classic stolen-refresh
+      // -token signal. Drop the whole family so thief and victim both have to
+      // log in again.
+      await Token.deleteMany({ userId: storedToken.userId });
+      throw new AppErrorHelper("Invalid Token Please login again !", 401);
+    }
+    // Inside the window: a concurrent tab, not an attacker. Fall through and
+    // hand this caller its own fresh pair.
+  }
 
   const user = await User.findById(storedToken.userId);
 
@@ -137,6 +168,13 @@ const refreshTokenService = async (cookieToken) => {
     throw new AppErrorHelper("Invalid Token Please login again !", 401);
   }
   assertAccountIsApproved(user);
+
+  // Reap tokens whose grace window has closed. Doing it here keeps the
+  // collection from growing without adding another cron job.
+  await Token.deleteMany({
+    userId: storedToken.userId,
+    rotatedAt: { $ne: null, $lt: new Date(Date.now() - REFRESH_ROTATION_GRACE_MS) },
+  });
 
   return SendTokenService(user);
 };
