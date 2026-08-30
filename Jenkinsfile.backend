@@ -53,8 +53,8 @@ pipeline {
 
         stage('Build Image') {
             steps {
-                script {
-                    dir('LMS') {
+                dir('LMS') {
+                     script {
                         dockerBuild(${IMAGE_NAME}, ${IMAGE_TAG})
                         
                     }
