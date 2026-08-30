@@ -1,8 +1,5 @@
-// ============================================================
-// Jenkinsfile.backend
-// Lives in the root of the LMS (backend) repo.
-// Stages: Checkout -> Build -> Test -> Debug/Smoke-test -> Deploy
-// ============================================================
+
+@Library('leroy-jenkins-library') _
 
 pipeline {
     agent any
@@ -13,20 +10,16 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '20'))
     }
 
-
-    
     environment {
         ENV_FILE = credentials('lms-env')
         SERVICE_NAME     = 'backend'
         IMAGE_NAME       = 'lms-backend'
         IMAGE_TAG        = "${env.BUILD_NUMBER}"
-        // Path (on the Jenkins agent) to the infra repo containing
-        // docker-compose.yml, nginx/, certs/, and the backend .env file.
-        INFRA_REPO_URL   = 'git@github.com:YOUR_ORG/lms-infra.git'
-        INFRA_DIR        = 'infra'
-        // Credentials ID for a Jenkins "Secret file" or "username/password"
-        // credential holding SSH/HTTPS access to your GitHub org.
-        GIT_CREDENTIALS  = 'github-creds'
+
+        INFRA_REPO_URL   = 'tmp'
+        INFRA_DIR        = 'tmp'
+
+        GIT_CREDENTIALS  = 'tmp'
     }
 
     stages {
@@ -48,31 +41,43 @@ pipeline {
                 }
             }
         }
+        stage('Env File') {
+            steps {
+                dir('LMS') {
+                    script {
+                        writeFile file: '.env', text: "${ENV_FILE}"
+                    }
+                }
+            }
+        }
 
         stage('Build Image') {
             steps {
-                dir('LMS') {
-                    agent {label 'node-agent'}
-                    script{
-                        sh 'cp ${ENV_FILE} .env'
+                script {
+                    dir('LMS') {
                         dockerBuild(${IMAGE_NAME}, ${IMAGE_TAG})
+                        
                     }
                 }
             }
         }
 
         stage('Test') {
+            agent {label 'node-agent'}
             steps {
-                agent {label 'node-agent'}
-                imageTestNode(${IMAGE_NAME}:${IMAGE_TAG})
+                script {
+                    imageTestNode(${IMAGE_NAME}:${IMAGE_TAG})
+                }
             }
         }
 
         stage('Deploy') {
+            agent {label 'node-agent'}
             steps {
-                agent {label 'node-agent'}
                 dir("${INFRA_DIR}") {
-                    composeDeploy(${SERVICE_NAME})
+                    script {
+                        composeDeploy(${SERVICE_NAME})
+                    }
                 }
             }
         }
