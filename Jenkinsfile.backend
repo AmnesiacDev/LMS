@@ -1,0 +1,89 @@
+// ============================================================
+// Jenkinsfile.backend
+// Lives in the root of the LMS (backend) repo.
+// Stages: Checkout -> Build -> Test -> Debug/Smoke-test -> Deploy
+// ============================================================
+
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+    }
+
+
+    
+    environment {
+        ENV_FILE = credentials('lms-env')
+        SERVICE_NAME     = 'backend'
+        IMAGE_NAME       = 'lms-backend'
+        IMAGE_TAG        = "${env.BUILD_NUMBER}"
+        // Path (on the Jenkins agent) to the infra repo containing
+        // docker-compose.yml, nginx/, certs/, and the backend .env file.
+        INFRA_REPO_URL   = 'git@github.com:YOUR_ORG/lms-infra.git'
+        INFRA_DIR        = 'infra'
+        // Credentials ID for a Jenkins "Secret file" or "username/password"
+        // credential holding SSH/HTTPS access to your GitHub org.
+        GIT_CREDENTIALS  = 'github-creds'
+    }
+
+    stages {
+
+        stage('Checkout Backend') {
+            steps {
+                dir('LMS') {
+                    checkout scm
+                }
+            }
+        }
+
+        stage('Checkout Infra') {
+            steps {
+                dir("${INFRA_DIR}") {
+                    git branch: 'main',
+                        url: "${INFRA_REPO_URL}",
+                        credentialsId: "${GIT_CREDENTIALS}"
+                }
+            }
+        }
+
+        stage('Build Image') {
+            steps {
+                dir('LMS') {
+                    agent {label 'node-agent'}
+                    script{
+                        sh 'cp ${ENV_FILE} .env'
+                        dockerBuild(${IMAGE_NAME}, ${IMAGE_TAG})
+                    }
+                }
+            }
+        }
+
+        stage('Test') {
+            steps {
+                agent {label 'node-agent'}
+                imageTestNode(${IMAGE_NAME}:${IMAGE_TAG})
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                agent {label 'node-agent'}
+                dir("${INFRA_DIR}") {
+                    composeDeploy(${SERVICE_NAME})
+                }
+            }
+        }
+    }
+
+    post {
+        failure {
+            echo "Backend pipeline failed at stage: ${env.STAGE_NAME}. Check backend-debug.log artifact if present."
+        }
+        always {
+            sh 'docker image prune -f || true'
+        }
+    }
+}
