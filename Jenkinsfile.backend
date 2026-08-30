@@ -15,11 +15,8 @@ pipeline {
         SERVICE_NAME     = 'backend'
         IMAGE_NAME       = 'lms-backend'
         IMAGE_TAG        = "${env.BUILD_NUMBER}"
-
-        INFRA_REPO_URL   = 'tmp'
-        INFRA_DIR        = 'tmp'
-
-        GIT_CREDENTIALS  = 'tmp'
+        INFRA_DIR        = 'LMS_Infra'
+        INFRA_REPO_URL   = 'https://github.com/AmnesiacDev/LMS_INFRA.git'
     }
 
     stages {
@@ -36,8 +33,7 @@ pipeline {
             steps {
                 dir("${INFRA_DIR}") {
                     git branch: 'main',
-                        url: "${INFRA_REPO_URL}",
-                        credentialsId: "${GIT_CREDENTIALS}"
+                        url: "${INFRA_REPO_URL}"
                 }
             }
         }
@@ -53,10 +49,9 @@ pipeline {
 
         stage('Build Image') {
             steps {
-                dir('LMS') {
-                     script {
-                        dockerBuild(${IMAGE_NAME}, ${IMAGE_TAG})
-                        
+                script {
+                    dir('LMS') {
+                        dockerBuild(${IMAGE_NAME}, ${IMAGE_TAG})  
                     }
                 }
             }
@@ -85,7 +80,7 @@ pipeline {
 
     post {
         failure {
-            echo "Backend pipeline failed at stage: ${env.STAGE_NAME}. Check backend-debug.log artifact if present."
+            echo "Backend pipeline failed at stage: Check backend-debug.log artifact if present."
         }
         always {
             sh 'docker image prune -f || true'
