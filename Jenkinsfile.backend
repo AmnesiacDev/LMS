@@ -82,12 +82,12 @@ pipeline {
             }
         }
 
-        stage('Deploy') {
+        stage('Compose Build') {
             agent {label 'node-agent'}
             steps {
                 dir("${INFRA_DIR}") {
                     script {
-                        composeDeploy("${SERVICE_NAME}")
+                        composeBuild("${SERVICE_NAME}")
                     }
                 }
             }
