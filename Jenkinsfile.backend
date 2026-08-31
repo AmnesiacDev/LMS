@@ -22,8 +22,7 @@ pipeline {
     environment {
         SERVICE_NAME     = 'backend'
         IMAGE_NAME       = 'lms-backend'
-        INFRA_DIR        = 'LMS_Infra'
-        INFRA_REPO_URL   = 'https://github.com/AmnesiacDev/LMS_INFRA.git'
+        INFRA_DIR        = '/opt/LMS_Infra'
     }
 
     stages {
@@ -37,15 +36,6 @@ pipeline {
             }
         }
 
-        stage('Checkout Infra') {
-        agent {label 'node-agent'}
-            steps {
-                dir("${INFRA_DIR}") {
-                    git branch: 'main',
-                        url: "${INFRA_REPO_URL}"
-                }
-            }
-        }
         stage('Env File') {
             agent {
                 label 'node-agent'
