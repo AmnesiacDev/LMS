@@ -46,8 +46,7 @@ pipeline {
             steps {
                 dir('LMS') {
                     script {
-                        writeFile file: '.env', text: "${ENV_FILE}"
-                        sh "cat .env"
+                        sh 'cp "$ENV_FILE" .env'
                     }
                 }
             }
