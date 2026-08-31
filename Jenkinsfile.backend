@@ -23,6 +23,8 @@ pipeline {
         SERVICE_NAME     = 'backend'
         IMAGE_NAME       = 'lms-backend'
         INFRA_DIR        = '/opt/LMS_Infra'
+        JOB_BASE_NAME    = env.JOB_BASE_NAME
+        WORKDIR          = '/home/jenkins/agent/workspace/algogambit'
     }
 
     stages {
