@@ -11,11 +11,17 @@ pipeline {
         skipDefaultCheckout(true)
 
     }
+    parameters {
+        string(
+            name: 'IMAGE_TAG',
+            defaultValue: '',
+            description: 'Docker image tag supplied by orchestrator'
+        )
+    }
 
     environment {
         SERVICE_NAME     = 'backend'
         IMAGE_NAME       = 'lms-backend'
-        IMAGE_TAG        = "${env.BUILD_NUMBER}"
         INFRA_DIR        = 'LMS_Infra'
         INFRA_REPO_URL   = 'https://github.com/AmnesiacDev/LMS_INFRA.git'
     }
