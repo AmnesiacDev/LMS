@@ -13,7 +13,6 @@ pipeline {
     }
 
     environment {
-        ENV_FILE = credentials('lms-env')
         SERVICE_NAME     = 'backend'
         IMAGE_NAME       = 'lms-backend'
         IMAGE_TAG        = "${env.BUILD_NUMBER}"
@@ -44,6 +43,9 @@ pipeline {
         stage('Env File') {
             agent {label 'node-agent'}
             steps {
+                withCredentials([
+                    file(credentialsId: 'lms-env', variable: 'ENV_FILE')
+                ])
                 dir('LMS') {
                     script {
                         sh 'cp "$ENV_FILE" .env'
