@@ -79,9 +79,9 @@ pipeline {
                 dir("${INFRA_DIR}") {
                     script {
                         sh """
-                            echo 'JOB_BASE_NAME=$JOB_BASE_NAME'
-                            echo 'WORKDIR=$WORKDIR'
-                            echo 'INFRA_DIR=$INFRA_DIR'
+                            echo "JOB_BASE_NAME=$JOB_BASE_NAME"
+                            echo "WORKDIR=$WORKDIR"
+                            echo "INFRA_DIR=$INFRA_DIR"
                         """
                         composeBuild("${SERVICE_NAME}")
                     }
