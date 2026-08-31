@@ -42,6 +42,7 @@ pipeline {
             }
         }
         stage('Env File') {
+            agent {label 'node-agent'}
             steps {
                 dir('LMS') {
                     script {
