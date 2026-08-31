@@ -23,7 +23,6 @@ pipeline {
         SERVICE_NAME     = 'backend'
         IMAGE_NAME       = 'lms-backend'
         INFRA_DIR        = '/opt/LMS_Infra'
-        JOB_BASE_NAME    = env.JOB_BASE_NAME
         WORKDIR          = '/home/jenkins/agent/workspace/algogambit'
     }
 
@@ -79,6 +78,11 @@ pipeline {
             steps {
                 dir("${INFRA_DIR}") {
                     script {
+                        sh """
+                            echo 'JOB_BASE_NAME=$JOB_BASE_NAME'
+                            echo 'WORKDIR=$WORKDIR'
+                            echo 'INFRA_DIR=$INFRA_DIR'
+                        """
                         composeBuild("${SERVICE_NAME}")
                     }
                 }
