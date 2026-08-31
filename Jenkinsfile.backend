@@ -24,6 +24,7 @@ pipeline {
     stages {
 
         stage('Checkout Backend') {
+        agent {label 'node-agent'}
             steps {
                 dir('LMS') {
                     checkout scm
@@ -32,6 +33,7 @@ pipeline {
         }
 
         stage('Checkout Infra') {
+        agent {label 'node-agent'}
             steps {
                 dir("${INFRA_DIR}") {
                     git branch: 'main',
