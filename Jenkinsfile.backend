@@ -22,80 +22,74 @@ pipeline {
     environment {
         SERVICE_NAME     = 'backend'
         IMAGE_NAME       = 'lms-backend'
-        INFRA_DIR        = '/opt/LMS_Infra'
-        WORKDIR          = '/home/jenkins/agent/workspace/algogambit'
+        INFRA_DIR        = '/git-repos/LMS_Infra'
+        WORKDIR          = '/git-repos'
+        TEST_DIR         = '/git-repos/LMS_Test'
+        REPO_DIR        = '/git-repos/LMS'
     }
 
     stages {
 
         stage('Checkout Backend') {
-        agent {label 'node-agent'}
-            steps {
-                dir('LMS') {
-                    checkout scm
+            agent { docker {
+                    image 'git-agent:latest'
+                    args '-v git-repos:/git-repos'
                 }
+            }
+            steps {
+                isValidGitdir("${TEST_DIR}")
             }
         }
 
-        stage('Env File') {
-            agent {
-                label 'node-agent'
+
+        stage('Test'){
+            agent { docker {
+                    image 'node-agent:latest'
+                    args '-v git-repos:/git-repos'
+                }
             }
+            steps {
+                withCredentials([file(credentialsId: 'backend-env', variable: 'ENV_FILE')]) {
+                    dir("${TEST_DIR}") {
+                        sh """
+                            cp "$ENV_FILE" .env
+                            npm ci
+                            npm test
+                        """
+                    }
+                }
+
+                sh """
+                    rm -rf ${REPO_DIR}
+                    mv ${TEST_DIR} ${REPO_DIR}
+                    rm -rf ${TEST_DIR}
+                """
+                    
+                
+            }
+        }
         
-            steps {
-                withCredentials([
-                    file(credentialsId: 'lms-env', variable: 'ENV_FILE')
-                ]) {
-                    dir('LMS') {
-                        sh 'cp "$ENV_FILE" .env'
-                    }
+
+        stage('Compose Build and Deploy') {
+            agent { docker {
+                    image 'docker-agent:latest'
+                    args '''-v git-repos:/git-repos
+                            -v /var/run/docker.sock:/var/run/docker.sock
+                        '''
                 }
             }
-        }
-
-        stage('Build Image') {
-            agent {label 'node-agent'}
-            steps {
-                script {
-                    dir('LMS') {
-                        dockerBuild("${IMAGE_NAME}", "${IMAGE_TAG}")  
-                    }
-                }
-            }
-        }
-
-        stage('Test') {
-            agent {label 'node-agent'}
-            steps {
-                script {
-                    imageTestNode("${IMAGE_NAME}:${IMAGE_TAG}")
-                }
-            }
-        }
-
-        stage('Compose Build') {
-            agent {label 'node-agent'}
             steps {
                 dir("${INFRA_DIR}") {
                     script {
                         sh """
-                            echo "JOB_BASE_NAME=$JOB_BASE_NAME"
                             echo "WORKDIR=$WORKDIR"
                             echo "INFRA_DIR=$INFRA_DIR"
                         """
                         composeBuild("${SERVICE_NAME}")
+                        composeDeploy("${SERVICE_NAME}")
                     }
                 }
             }
-        }
-    }
-
-    post {
-        failure {
-            echo "Backend pipeline failed at stage: Check backend-debug.log artifact if present."
-        }
-        always {
-            sh 'docker image prune -f || true'
         }
     }
 }
